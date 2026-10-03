@@ -1,24 +1,30 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { get, post } from '../api.js';
+import { useAuth } from '../auth.jsx';
 import { ErrorBox, Field, useAction, useLoad } from '../components/ui.jsx';
-import { HONDA_MODELS, YEARS, fmtMobile, fmtReg, localToIso, fmtDate, STATUS_LABEL } from '../lib.js';
+import JobItems from '../components/JobItems.jsx';
+import { ServicePicker, PartPicker, CustomPicker } from '../components/ItemPicker.jsx';
+import { HONDA_MODELS, YEARS, fmtMobile, fmtReg, localToIso, fmtDate, STATUS_LABEL, money, isServiceItem } from '../lib.js';
 
 const emptyCustomer = { name: '', mobile: '', suburb: '', preferred_lang: 'ta' };
 const emptyBike = { model: '', modelOther: '', year: '', engine_no: '', chassis_no: '' };
 
 export default function NewJob() {
   const nav = useNavigate();
+  const { can } = useAuth();
+  const canPrice = can('jobs.pricing');
   const [reg, setReg] = useState('');
   const [lookup, setLookup] = useState(undefined); // undefined = not searched, null = not found
   const [customer, setCustomer] = useState(emptyCustomer);
   const [bike, setBike] = useState(emptyBike);
-  const [job, setJob] = useState({ service_type: 'General Service', odometer: '', complaint: '', fuel_level: '', mechanic_id: '', promised_at: '' });
+  const [job, setJob] = useState({ odometer: '', complaint: '', fuel_level: '', mechanic_id: '', promised_at: '', delivery_method: 'PICKUP', delivery_address: '' });
+  const [items, setItems] = useState([]);
+  const [picker, setPicker] = useState(null);
   const search = useAction();
   const save = useAction();
-  const meta = useLoad(() => Promise.all([get('/jobs/service-types'), get('/users')]), []);
-  const [serviceTypes, users] = meta.data || [[], []];
-  const mechanics = users.filter((u) => u.active && u.role === 'mechanic');
+  const users = useLoad(() => get('/users'), []);
+  const workers = (users.data || []).filter((u) => u.active && u.can_work).sort((a, b) => Number(b.is_mechanic) - Number(a.is_mechanic));
 
   const doLookup = (e) => {
     e?.preventDefault();
@@ -26,15 +32,23 @@ export default function NewJob() {
     search.run(async () => setLookup(await get('/bikes/lookup', { reg })));
   };
 
+  const addItems = (list) => {
+    setItems((cur) => [...cur, ...list.map((i, k) => ({ ...i, _key: `${Date.now()}-${k}` }))]);
+    setPicker(null);
+  };
+  const total = items.reduce((s, i) => s + Number(i.qty) * Number(i.unit_price || 0), 0);
+
   const submit = (e) => {
     e.preventDefault();
     const body = {
-      service_type: job.service_type,
       complaint: job.complaint,
       fuel_level: job.fuel_level,
       odometer: job.odometer === '' ? null : Number(job.odometer),
       mechanic_id: job.mechanic_id ? Number(job.mechanic_id) : null,
       promised_at: localToIso(job.promised_at),
+      delivery_method: job.delivery_method,
+      delivery_address: job.delivery_method === 'HOME_DELIVERY' ? job.delivery_address : null,
+      items: items.map(({ _key, part_no, ...i }) => (i.item_type === 'service' ? { ...i, description: canPrice ? i.description : undefined } : i)),
     };
     if (lookup) {
       body.bike_id = lookup.id;
@@ -57,6 +71,7 @@ export default function NewJob() {
   const c = (k) => (e) => setCustomer({ ...customer, [k]: e.target.value });
   const b = (k) => (e) => setBike({ ...bike, [k]: e.target.value });
   const j = (k) => (e) => setJob({ ...job, [k]: e.target.value });
+  const step = lookup === null ? 3 : 2;
 
   return (
     <div className="page narrow">
@@ -79,7 +94,7 @@ export default function NewJob() {
                 {lookup.last_service_date && <> · Last service {fmtDate(lookup.last_service_date)}</>}
               </div>
             </div>
-            <Link className="small" to={`/customers/${lookup.customer.id}`}>View history</Link>
+            {can('customers.view') && <Link className="small" to={`/customers/${lookup.customer.id}`}>View history</Link>}
           </div>
         )}
         {lookup?.open_job && (
@@ -126,30 +141,54 @@ export default function NewJob() {
           )}
 
           <div className="card">
-            <h2 className="card-title">{lookup === null ? '3' : '2'} · Job details</h2>
+            <h2 className="card-title">{step} · Job details</h2>
             <div className="grid2">
-              <Field label="Service type">
-                <select value={job.service_type} onChange={j('service_type')}>
-                  {serviceTypes.map((s) => <option key={s}>{s}</option>)}
-                </select>
+              <Field label="Customer complaint / request" wide>
+                <textarea rows="2" value={job.complaint} onChange={j('complaint')} placeholder="e.g. Regular service, brake noise, starting trouble" />
               </Field>
               <Field label="Odometer (km)"><input type="number" min="0" value={job.odometer} onChange={j('odometer')} /></Field>
-              <Field label="Customer complaint / request" wide>
-                <textarea rows="3" value={job.complaint} onChange={j('complaint')} placeholder="e.g. Regular service, brake noise, starting trouble" />
-              </Field>
               <Field label="Fuel level">
                 <select value={job.fuel_level} onChange={j('fuel_level')}>
                   <option value="">—</option><option>Empty</option><option>¼</option><option>½</option><option>¾</option><option>Full</option>
                 </select>
               </Field>
-              <Field label="Assign mechanic">
+              <Field label="Assign to">
                 <select value={job.mechanic_id} onChange={j('mechanic_id')}>
                   <option value="">Assign later</option>
-                  {mechanics.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                  {workers.map((m) => <option key={m.id} value={m.id}>{m.name}{m.is_mechanic ? '' : ` (${m.role})`}</option>)}
                 </select>
               </Field>
               <Field label="Promised delivery"><input type="datetime-local" value={job.promised_at} onChange={j('promised_at')} /></Field>
+              <Field label="Delivery">
+                <select value={job.delivery_method} onChange={j('delivery_method')}>
+                  <option value="PICKUP">Customer picks up</option>
+                  <option value="HOME_DELIVERY">Home delivery</option>
+                </select>
+              </Field>
+              {job.delivery_method === 'HOME_DELIVERY' && <Field label="Delivery address"><input value={job.delivery_address} onChange={j('delivery_address')} /></Field>}
             </div>
+          </div>
+
+          <div className="card">
+            <div className="card-title-row">
+              <h2 className="card-title">{step + 1} · Services & parts</h2>
+              <div className="row wrap">
+                <button type="button" className="btn small" onClick={() => setPicker('services')}>+ Services</button>
+                <button type="button" className="btn small" onClick={() => setPicker('parts')}>+ Parts</button>
+                <button type="button" className="btn small ghost" onClick={() => setPicker('custom')}>+ Custom</button>
+              </div>
+            </div>
+            <JobItems items={items} canPrice={canPrice} editable
+              onChange={(it, patch) => setItems(items.map((x) => (x._key === it._key ? { ...x, ...patch } : x)))}
+              onRemove={(it) => setItems(items.filter((x) => x._key !== it._key))} />
+            {canPrice && items.length > 0 && (
+              <div className="totals">
+                <span>Services</span><span>{money(items.filter(isServiceItem).reduce((s, i) => s + i.qty * i.unit_price, 0))}</span>
+                <span>Parts</span><span>{money(items.filter((i) => !isServiceItem(i)).reduce((s, i) => s + i.qty * (i.unit_price || 0), 0))}</span>
+                <strong>Estimate</strong><strong>{money(total)}</strong>
+              </div>
+            )}
+            <p className="small muted">You can also add or change these later on the job card.</p>
           </div>
 
           <ErrorBox error={save.error} />
@@ -159,6 +198,10 @@ export default function NewJob() {
           </div>
         </form>
       )}
+
+      {picker === 'services' && <ServicePicker canPrice={canPrice} existingIds={items.filter((i) => i.service_type_id).map((i) => i.service_type_id)} onClose={() => setPicker(null)} onAdd={addItems} />}
+      {picker === 'parts' && <PartPicker canPrice={canPrice} onClose={() => setPicker(null)} onAdd={addItems} />}
+      {picker === 'custom' && <CustomPicker canPrice={canPrice} onClose={() => setPicker(null)} onAdd={addItems} />}
     </div>
   );
 }

@@ -16,12 +16,17 @@ export default function Settings() {
       <Section title="Service intervals" k="service" initial={s.data.service} fields={[
         ['interval_days', 'Next service after (days)', 'number'], ['interval_km', 'Next service after (km)', 'number'], ['reminder_days_before', 'Send reminder this many days before', 'number'],
       ]} />
+      <Section title="Payroll (Sri Lanka)" k="payroll" initial={s.data.payroll || {}} fields={[
+        ['epf_employee_rate', 'EPF – employee %', 'number'], ['epf_employer_rate', 'EPF – employer %', 'number'], ['etf_rate', 'ETF – employer %', 'number'],
+        ['ot_multiplier', 'OT rate (× hourly rate)', 'number'], ['ot_hour_divisor', 'Hourly rate = basic ÷', 'number'],
+        ['nopay_day_divisor', 'Daily rate for no-pay = basic ÷', 'number'], ['mid_month_percent', 'Mid-month advance (% of basic)', 'number'],
+      ]} note="Standard rates: EPF 8% + 12%, ETF 3%. OT is usually basic ÷ 240 × 1.5 per hour. Check with your accountant if your terms differ." />
       <NotificationSection initial={s.data.notifications} />
     </div>
   );
 }
 
-function Section({ title, k, initial, fields }) {
+function Section({ title, k, initial, fields, note }) {
   const [f, setF] = useState(initial);
   const [saved, setSaved] = useState(false);
   const { busy, error, run } = useAction();
@@ -38,6 +43,7 @@ function Section({ title, k, initial, fields }) {
           </Field>
         ))}
       </div>
+      {note && <p className="small muted">{note}</p>}
       <div className="row"><button className="btn primary" disabled={busy} onClick={save}>Save</button>{saved && <span className="ok-text small">Saved ✓</span>}</div>
     </div>
   );
@@ -46,7 +52,7 @@ function Section({ title, k, initial, fields }) {
 const EVENTS = [
   ['on_checkin', 'Job card opened (confirmation + status link)'],
   ['on_waiting_parts', 'Waiting for parts'],
-  ['on_ready', 'Ready for pickup (with amount)'],
+  ['on_ready', 'Job completed – ready for pickup (with amount)'],
   ['on_delivered', 'Delivered (thank you + next service date)'],
   ['service_reminders', 'Service-due reminders'],
 ];

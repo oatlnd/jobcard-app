@@ -3,19 +3,19 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { get } from '../api.js';
 import { ErrorBox, useAction } from '../components/ui.jsx';
-import { STATUS_LABEL, STATUS_LABEL_TA, fmtReg, fmtDate, fmtDateTime } from '../lib.js';
+import { STATUS_LABEL, DELIVERY_LABEL, STATUS_LABEL_TA, fmtReg, fmtDate, fmtDateTime } from '../lib.js';
 
-const STEPS = ['CHECKED_IN', 'IN_PROGRESS', 'QA_CHECK', 'READY', 'DELIVERED'];
+const STEPS = ['CHECKED_IN', 'IN_PROGRESS', 'QA_CHECK', 'COMPLETED', 'DELIVERED'];
 
 const T = {
   en: {
     title: 'Check your service status', bike: 'Bike number', mobile: 'Last 4 digits of your mobile', check: 'Check status',
-    job: 'Job card', promised: 'Expected ready', next: 'Next service due', none: 'No service record yet for this bike.',
+    job: 'Job card', services: 'Services', promised: 'Expected ready', next: 'Next service due', none: 'No service record yet for this bike.',
     waiting: 'We are waiting for parts. Work will continue as soon as they arrive.', call: 'Questions? Call us',
   },
   ta: {
     title: 'உங்கள் சேவை நிலையைச் சரிபார்க்கவும்', bike: 'வாகன இலக்கம்', mobile: 'கைபேசி இலக்கத்தின் கடைசி 4 இலக்கங்கள்', check: 'நிலையைப் பார்க்க',
-    job: 'வேலை அட்டை', promised: 'தயாராகும் நேரம்', next: 'அடுத்த சேவை', none: 'இந்த வாகனத்திற்கு இன்னும் சேவைப் பதிவு இல்லை.',
+    job: 'வேலை அட்டை', services: 'சேவைகள்', promised: 'தயாராகும் நேரம்', next: 'அடுத்த சேவை', none: 'இந்த வாகனத்திற்கு இன்னும் சேவைப் பதிவு இல்லை.',
     waiting: 'உதிரிப்பாகங்களுக்காக காத்திருக்கிறோம். அவை வந்தவுடன் வேலை தொடரும்.', call: 'கேள்விகள்? அழையுங்கள்',
   },
 };
@@ -29,13 +29,13 @@ export default function PublicStatus() {
   const [shop, setShop] = useState(null);
   const { busy, error, run } = useAction();
   const t = T[lang];
-  const L = lang === 'ta' ? STATUS_LABEL_TA : STATUS_LABEL;
+  const L = lang === 'ta' ? STATUS_LABEL_TA : { ...STATUS_LABEL, ...DELIVERY_LABEL, COMPLETED: 'Work completed' };
 
   useEffect(() => { get('/public/shop').then(setShop).catch(() => {}); }, []);
 
   const check = (e) => { e.preventDefault(); run(async () => setRes(await get('/public/status', { bike, mobile4: m4 }))); };
   const job = res?.job;
-  const stepIdx = job ? STEPS.indexOf(job.status === 'WAITING_PARTS' ? 'IN_PROGRESS' : job.status) : -1;
+  const stepIdx = !job ? -1 : job.delivery_status === 'DELIVERED' ? 4 : STEPS.indexOf(job.status === 'WAITING_PARTS' ? 'IN_PROGRESS' : job.status);
 
   return (
     <div className="public">
@@ -63,7 +63,9 @@ export default function PublicStatus() {
             <div className="row between"><h2>{fmtReg(res.reg_no)}</h2><span className="muted">{res.model}</span></div>
             {!job ? <p>{t.none}</p> : (
               <>
-                <div className={`big-status s-${job.status}`}>{lang === 'ta' ? job.label_ta : job.label_en}</div>
+                <div className={`big-status ${job.status === 'COMPLETED' ? `d-${job.delivery_status}` : `s-${job.status}`}`}>
+                  {job.status === 'COMPLETED' ? (lang === 'ta' ? job.delivery_label_ta : job.delivery_label_en) : (lang === 'ta' ? job.label_ta : job.label_en)}
+                </div>
                 {job.status === 'WAITING_PARTS' && <p className="alert warn">{t.waiting}</p>}
                 {job.status !== 'CANCELLED' && (
                   <ol className="steps">
@@ -71,8 +73,9 @@ export default function PublicStatus() {
                   </ol>
                 )}
                 <div className="kv">
-                  <span>{t.job}</span><span>{job.job_no} · {job.service_type}</span>
-                  {job.promised_at && !['READY', 'DELIVERED'].includes(job.status) && <><span>{t.promised}</span><span>{fmtDateTime(job.promised_at)}</span></>}
+                  <span>{t.job}</span><span>{job.job_no}</span>
+                  {job.services && <><span>{t.services}</span><span>{job.services}</span></>}
+                  {job.promised_at && job.status !== 'COMPLETED' && <><span>{t.promised}</span><span>{fmtDateTime(job.promised_at)}</span></>}
                   {res.next_service_due_date && <><span>{t.next}</span><span>{fmtDate(res.next_service_due_date)}</span></>}
                 </div>
               </>

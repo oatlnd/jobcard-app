@@ -13,6 +13,7 @@ COPY server/package*.json ./
 RUN npm ci --omit=dev
 COPY server/ ./
 COPY --from=client /app/client/dist /app/client/dist
+RUN mkdir -p /app/uploads && chown node:node /app/uploads
 EXPOSE 3000
 USER node
 CMD ["node", "src/index.js"]

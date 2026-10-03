@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pool } from '../db.js';
+import { ALL_PERMISSIONS } from '../lib/permissions.js';
 
 const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'migrations');
 
@@ -27,6 +28,11 @@ export async function migrate({ log = console.log } = {}) {
         await client.query('ROLLBACK');
         throw new Error(`Migration ${file} failed: ${err.message}`);
       }
+    }
+    // The system Admin role always has every permission (including ones added in new versions)
+    const hasRoles = await client.query(`SELECT to_regclass('public.roles') AS t`);
+    if (hasRoles.rows[0].t) {
+      await client.query('UPDATE roles SET permissions = $1 WHERE is_system', [ALL_PERMISSIONS]);
     }
     log('Migrations up to date.');
   } finally {

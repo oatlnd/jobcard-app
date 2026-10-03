@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { query } from '../db.js';
+import { requirePerm } from '../auth.js';
 import { HttpError, normalizeRegNo } from '../lib/util.js';
 import { parse, z, id } from '../lib/validate.js';
 import { bikeSchema } from './customers.js';
@@ -7,13 +8,13 @@ import { bikeSchema } from './customers.js';
 const r = Router();
 
 // Look up a bike by registration number (used when opening a new job card)
-r.get('/lookup', async (req, res) => {
+r.get('/lookup', requirePerm('jobs.create', 'customers.view'), async (req, res) => {
   const reg = normalizeRegNo(req.query.reg);
   if (!reg) throw new HttpError(400, 'reg is required');
   const { rows } = await query(
     `SELECT b.*, row_to_json(c.*) AS customer,
        (SELECT json_build_object('id', j.id, 'job_no', j.job_no, 'status', j.status)
-          FROM job_cards j WHERE j.bike_id = b.id AND j.status NOT IN ('DELIVERED','CANCELLED')
+          FROM job_cards j WHERE j.bike_id = b.id AND j.status <> 'CANCELLED' AND j.delivery_status <> 'DELIVERED'
           ORDER BY j.id DESC LIMIT 1) AS open_job
      FROM bikes b JOIN customers c ON c.id = b.customer_id WHERE b.reg_no = $1`,
     [reg],
@@ -22,7 +23,7 @@ r.get('/lookup', async (req, res) => {
 });
 
 // Bikes due for service (for the reminders list)
-r.get('/due', async (req, res) => {
+r.get('/due', requirePerm('messages.view', 'customers.view'), async (req, res) => {
   const days = Math.min(Number(req.query.days) || 14, 365);
   const { rows } = await query(
     `SELECT b.*, c.name AS customer_name, c.mobile
@@ -34,7 +35,7 @@ r.get('/due', async (req, res) => {
   res.json(rows);
 });
 
-r.post('/', async (req, res) => {
+r.post('/', requirePerm('customers.manage'), async (req, res) => {
   const d = parse(bikeSchema.extend({ customer_id: id }), req.body);
   const { rows } = await query(
     `INSERT INTO bikes (customer_id, reg_no, model, year, engine_no, chassis_no, last_odometer)
@@ -44,7 +45,7 @@ r.post('/', async (req, res) => {
   res.status(201).json(rows[0]);
 });
 
-r.patch('/:id', async (req, res) => {
+r.patch('/:id', requirePerm('customers.manage'), async (req, res) => {
   const bid = parse(id, req.params.id);
   const d = parse(
     bikeSchema.partial().extend({

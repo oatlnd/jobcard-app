@@ -3,3 +3,4 @@ client/dist/
 .env
 server/.env
 *.log
+server/uploads/

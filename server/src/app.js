@@ -18,6 +18,12 @@ import dashboardRoutes from './routes/dashboard.js';
 import settingsRoutes from './routes/settings.js';
 import notificationRoutes from './routes/notifications.js';
 import publicRoutes from './routes/public.js';
+import masterRoutes from './routes/masters.js';
+import attachmentRoutes, { filesRouter } from './routes/attachments.js';
+import purchasingRoutes from './routes/purchasing.js';
+import expenseRoutes from './routes/expenses.js';
+import hrRoutes from './routes/hr.js';
+import payrollRoutes from './routes/payroll.js';
 
 export function createApp() {
   const app = express();
@@ -31,6 +37,8 @@ export function createApp() {
   // Public (no login)
   app.use('/api/auth', authRoutes);
   app.use('/api/public', publicRoutes);
+  app.use('/api/files', filesRouter);
+  app.use('/api/attachments', attachmentRoutes);
 
   // Staff only
   app.use('/api', requireAuth);
@@ -43,6 +51,11 @@ export function createApp() {
   app.use('/api/dashboard', dashboardRoutes);
   app.use('/api/settings', settingsRoutes);
   app.use('/api/notifications', notificationRoutes);
+  app.use('/api/masters', masterRoutes);
+  app.use('/api/purchasing', purchasingRoutes);
+  app.use('/api/expenses', expenseRoutes);
+  app.use('/api/hr', hrRoutes);
+  app.use('/api/payroll', payrollRoutes);
 
   app.use('/api', (_req, _res, next) => next(new HttpError(404, 'Not found')));
 
@@ -62,6 +75,9 @@ export function createApp() {
     }
     if (err?.code === '23503') {
       return res.status(409).json({ error: 'This record is linked to other records', details: err.detail });
+    }
+    if (err?.name === 'MulterError') {
+      return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'File is too large (max 10 MB)' : err.message });
     }
     if (err?.type === 'entity.parse.failed') {
       return res.status(400).json({ error: 'Invalid JSON body' });

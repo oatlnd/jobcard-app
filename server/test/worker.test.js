@@ -18,7 +18,7 @@ test('mobile and reg normalisation', () => {
 });
 
 test('totals with discount and tax', () => {
-  const t = computeTotals([{ item_type: 'part', line_total: 1000 }, { item_type: 'labour', line_total: 500 }], 100, 10);
+  const t = computeTotals([{ item_type: 'part', line_total: 1000 }, { item_type: 'custom_service', line_total: 500 }], 100, 10);
   assert.deepEqual([t.subtotal, t.discount, t.tax_amount, t.total], [1500, 100, 140, 1540]);
 });
 

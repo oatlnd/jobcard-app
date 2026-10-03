@@ -1,8 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { STATUS_LABEL } from '../lib.js';
+import { STATUS_LABEL, DELIVERY_LABEL } from '../lib.js';
 
 export function StatusBadge({ status }) {
   return <span className={`badge s-${status}`}>{STATUS_LABEL[status] || status}</span>;
+}
+
+export function DeliveryBadge({ status }) {
+  return <span className={`badge d-${status}`}>{DELIVERY_LABEL[status] || status}</span>;
+}
+
+export function Tabs({ tabs, value, onChange }) {
+  return (
+    <div className="tabs" role="tablist">
+      {tabs.map(([k, label]) => (
+        <button key={k} role="tab" aria-selected={value === k} className={value === k ? 'on' : ''} onClick={() => onChange(k)}>{label}</button>
+      ))}
+    </div>
+  );
 }
 
 export function Field({ label, hint, children, wide }) {

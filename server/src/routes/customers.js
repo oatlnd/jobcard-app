@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { query, tx } from '../db.js';
+import { requirePerm } from '../auth.js';
 import { HttpError, normalizeMobile, normalizeRegNo } from '../lib/util.js';
 import { parse, z, id, optText } from '../lib/validate.js';
 
@@ -35,7 +36,7 @@ export const bikeSchema = z.object({
 });
 
 // List / search customers by name, mobile or bike number
-r.get('/', async (req, res) => {
+r.get('/', requirePerm('customers.view'), async (req, res) => {
   const q = String(req.query.q || '').trim();
   const params = [];
   const conds = [];
@@ -65,13 +66,14 @@ r.get('/', async (req, res) => {
   res.json(rows);
 });
 
-r.get('/:id', async (req, res) => {
+r.get('/:id', requirePerm('customers.view'), async (req, res) => {
   const cid = parse(id, req.params.id);
   const { rows } = await query('SELECT * FROM customers WHERE id = $1', [cid]);
   if (!rows[0]) throw new HttpError(404, 'Customer not found');
   const bikes = await query('SELECT * FROM bikes WHERE customer_id = $1 ORDER BY id', [cid]);
   const jobs = await query(
-    `SELECT j.id, j.job_no, j.status, j.service_type, j.created_at, j.delivered_at, b.reg_no, b.model, i.total
+    `SELECT j.id, j.job_no, j.status, j.delivery_status, j.created_at, j.delivered_at, b.reg_no, b.model, i.total,
+       (SELECT string_agg(description, ', ' ORDER BY id) FROM job_items WHERE job_card_id = j.id AND item_type IN ('service','custom_service')) AS services
      FROM job_cards j JOIN bikes b ON b.id = j.bike_id LEFT JOIN invoices i ON i.job_card_id = j.id
      WHERE j.customer_id = $1 ORDER BY j.created_at DESC`,
     [cid],
@@ -80,7 +82,7 @@ r.get('/:id', async (req, res) => {
 });
 
 // Create customer, optionally with their first bike
-r.post('/', async (req, res) => {
+r.post('/', requirePerm('customers.manage'), async (req, res) => {
   const d = parse(customerSchema.extend({ bike: bikeSchema.optional() }), req.body);
   const result = await tx(async (c) => {
     const { rows } = await c.query(
@@ -103,7 +105,7 @@ r.post('/', async (req, res) => {
   res.status(201).json(result);
 });
 
-r.patch('/:id', async (req, res) => {
+r.patch('/:id', requirePerm('customers.manage'), async (req, res) => {
   const cid = parse(id, req.params.id);
   const d = parse(customerSchema.partial(), req.body);
   const cols = ['name', 'mobile', 'suburb', 'email', 'preferred_lang', 'notes'].filter((k) => d[k] !== undefined);

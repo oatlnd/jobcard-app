@@ -26,7 +26,8 @@ export function AuthProvider({ children }) {
 
   const logout = useCallback(() => { setToken(null); setUser(null); }, []);
 
-  return <AuthCtx.Provider value={{ user, ready, login, logout }}>{children}</AuthCtx.Provider>;
+  const can = useCallback((...perms) => !!user && perms.some((p) => user.permissions?.includes(p)), [user]);
+  return <AuthCtx.Provider value={{ user, ready, login, logout, can }}>{children}</AuthCtx.Provider>;
 }
 
 export const useAuth = () => useContext(AuthCtx);

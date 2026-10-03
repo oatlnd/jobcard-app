@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { query } from '../db.js';
-import { requireRole } from '../auth.js';
+import { requirePerm } from '../auth.js';
 import { getSettings } from '../lib/notify.js';
 import { parse, z } from '../lib/validate.js';
 import { HttpError } from '../lib/util.js';
@@ -30,11 +30,20 @@ const SCHEMAS = {
     on_delivered: z.boolean(),
     service_reminders: z.boolean(),
   }),
+  payroll: z.object({
+    epf_employee_rate: z.coerce.number().min(0).max(30),
+    epf_employer_rate: z.coerce.number().min(0).max(30),
+    etf_rate: z.coerce.number().min(0).max(10),
+    ot_multiplier: z.coerce.number().min(1).max(3),
+    ot_hour_divisor: z.coerce.number().min(1).max(400),
+    nopay_day_divisor: z.coerce.number().min(1).max(31),
+    mid_month_percent: z.coerce.number().min(0).max(100),
+  }),
 };
 
 r.get('/', async (_req, res) => res.json(await getSettings()));
 
-r.put('/:key', requireRole('admin'), async (req, res) => {
+r.put('/:key', requirePerm('settings.manage'), async (req, res) => {
   const schema = SCHEMAS[req.params.key];
   if (!schema) throw new HttpError(404, 'Unknown setting');
   const value = parse(schema, req.body);

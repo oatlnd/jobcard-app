@@ -1,12 +1,12 @@
 import { Router } from 'express';
 import { query } from '../db.js';
-import { requireRole } from '../auth.js';
+import { requirePerm } from '../auth.js';
 import { parse, id } from '../lib/validate.js';
 import { HttpError } from '../lib/util.js';
 
 const r = Router();
 
-r.get('/', async (req, res) => {
+r.get('/', requirePerm('messages.view'), async (req, res) => {
   const params = [];
   let where = '';
   if (req.query.status) { params.push(req.query.status); where = 'WHERE n.status = $1'; }
@@ -19,7 +19,7 @@ r.get('/', async (req, res) => {
   res.json(rows);
 });
 
-r.post('/:id/retry', requireRole('admin', 'advisor'), async (req, res) => {
+r.post('/:id/retry', requirePerm('messages.send'), async (req, res) => {
   const nid = parse(id, req.params.id);
   const { rows } = await query(
     `UPDATE notifications SET status = 'QUEUED', attempts = 0, last_error = NULL, send_after = now()

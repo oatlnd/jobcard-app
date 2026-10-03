@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { get, post, patch } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { useLive } from '../socket.js';
@@ -7,7 +7,7 @@ import { ErrorBox, Field, Loading, Empty, Modal, useAction, useLoad, useDebounce
 import { money } from '../lib.js';
 
 export default function Parts() {
-  const { user } = useAuth();
+  const { can } = useAuth();
   const [sp, setSp] = useSearchParams();
   const [q, setQ] = useState('');
   const [category, setCategory] = useState('');
@@ -15,17 +15,25 @@ export default function Parts() {
   const dq = useDebounced(q);
   const parts = useLoad(() => get('/parts', { q: dq, category, low: low ? '1' : undefined }), [dq, category, low]);
   const cats = useLoad(() => get('/parts/categories'), []);
+  const units = useLoad(() => get('/masters/lookups', { type: 'unit' }), []);
   const [editing, setEditing] = useState(null);
   const [stock, setStock] = useState(null);
-  const canEdit = user.role !== 'mechanic';
+  const canEdit = can('parts.manage');
+  const showCost = can('parts.manage', 'purchasing.view');
+  const showPrice = can('parts.manage', 'jobs.pricing');
 
   useLive('parts:changed', () => parts.reload({ quiet: true }));
+
+  const stockValue = (parts.data || []).reduce((s, p) => s + (p.cost_price || 0) * p.stock_qty, 0);
 
   return (
     <div className="page">
       <div className="page-head">
-        <div><h1>Parts & stock</h1><p className="muted">Genuine parts catalogue. Stock goes down automatically when parts are added to a job card.</p></div>
-        {canEdit && <button className="btn primary" onClick={() => setEditing({})}>+ New part</button>}
+        <div><h1>Parts & stock</h1><p className="muted">Stock goes down when parts are added to a job card and up when goods are received (GRN).</p></div>
+        <div className="row wrap">
+          {can('purchasing.manage') && <Link className="btn ghost" to="/purchase-orders/new?reorder=1">Order low stock</Link>}
+          {canEdit && <button className="btn primary" onClick={() => setEditing({})}>+ New part</button>}
+        </div>
       </div>
       <div className="toolbar">
         <input className="search" placeholder="Search part name or number…" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -34,21 +42,31 @@ export default function Parts() {
           {(cats.data || []).map((c) => <option key={c}>{c}</option>)}
         </select>
         <label className="toggle"><input type="checkbox" checked={low} onChange={(e) => setSp(e.target.checked ? { low: '1' } : {})} /> Low stock only</label>
+        {showCost && parts.data && <span className="muted small" style={{ marginLeft: 'auto' }}>Stock value at cost: <b>{money(stockValue)}</b></span>}
       </div>
       <ErrorBox error={parts.error} />
       {parts.loading && !parts.data ? <Loading /> : parts.data?.length === 0 ? <Empty>No parts found.</Empty> : (
         <div className="table-wrap">
           <table className="table">
-            <thead><tr><th>Part no.</th><th>Name</th><th>Category</th><th className="num">Price</th><th className="num">In stock</th>{canEdit && <th />}</tr></thead>
+            <thead>
+              <tr>
+                <th>Part no.</th><th>Name</th><th>Category</th>
+                {showCost && <th className="num">Cost</th>}{showPrice && <th className="num">Selling price</th>}
+                <th className="num">In stock</th>{(canEdit || can('stock.adjust')) && <th />}
+              </tr>
+            </thead>
             <tbody>
               {parts.data?.map((p) => (
                 <tr key={p.id}>
-                  <td className="mono">{p.part_no}</td><td>{p.name}</td><td>{p.category}</td>
-                  <td className="num">{money(p.unit_price)}</td>
-                  <td className={`num ${p.stock_qty <= p.reorder_level ? 'late-text' : ''}`}><b>{p.stock_qty}</b> <small className="muted">/ min {p.reorder_level}</small></td>
-                  {canEdit && <td className="num nowrap">
-                    <button className="btn small ghost" onClick={() => setStock(p)}>Stock</button>
-                    <button className="btn small ghost" onClick={() => setEditing(p)}>Edit</button>
+                  <td className="mono">{p.part_no}</td>
+                  <td>{p.name}{(p.brand || p.location) && <div className="small muted">{[p.brand, p.location && `Rack ${p.location}`].filter(Boolean).join(' · ')}</div>}</td>
+                  <td>{p.category}</td>
+                  {showCost && <td className="num">{money(p.cost_price)}</td>}
+                  {showPrice && <td className="num">{money(p.unit_price)}</td>}
+                  <td className={`num ${p.stock_qty <= p.reorder_level ? 'late-text' : ''}`}><b>{p.stock_qty}</b> <small className="muted">{p.unit} / min {p.reorder_level}</small></td>
+                  {(canEdit || can('stock.adjust')) && <td className="num nowrap">
+                    {can('stock.adjust') && <button className="btn small ghost" onClick={() => setStock(p)}>Adjust</button>}
+                    {canEdit && <button className="btn small ghost" onClick={() => setEditing(p)}>Edit</button>}
                   </td>}
                 </tr>
               ))}
@@ -56,22 +74,24 @@ export default function Parts() {
           </table>
         </div>
       )}
-      {editing && <PartForm part={editing} cats={cats.data || []} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); parts.reload({ quiet: true }); }} />}
+      {editing && <PartForm part={editing} cats={cats.data || []} units={(units.data || []).map((u) => u.name)} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); parts.reload({ quiet: true }); }} />}
       {stock && <StockForm part={stock} onClose={() => setStock(null)} onSaved={() => { setStock(null); parts.reload({ quiet: true }); }} />}
     </div>
   );
 }
 
-function PartForm({ part, cats, onClose, onSaved }) {
+function PartForm({ part, cats, units, onClose, onSaved }) {
   const isNew = !part.id;
   const [f, setF] = useState({
-    part_no: part.part_no || '', name: part.name || '', category: part.category || 'General',
-    unit_price: part.unit_price ?? '', stock_qty: part.stock_qty ?? 0, reorder_level: part.reorder_level ?? 0,
+    part_no: part.part_no || '', name: part.name || '', category: part.category || cats[0] || 'General', unit: part.unit || 'Nos',
+    brand: part.brand || '', location: part.location || '',
+    unit_price: part.unit_price ?? '', cost_price: part.cost_price ?? 0, stock_qty: part.stock_qty ?? 0, reorder_level: part.reorder_level ?? 0,
   });
   const { busy, error, run } = useAction();
   const s = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  const margin = Number(f.unit_price) && Number(f.cost_price) ? Math.round(((f.unit_price - f.cost_price) / f.unit_price) * 100) : null;
   const save = () => run(async () => {
-    const body = { ...f, unit_price: Number(f.unit_price), stock_qty: Number(f.stock_qty), reorder_level: Number(f.reorder_level) };
+    const body = { ...f, unit_price: Number(f.unit_price), cost_price: Number(f.cost_price) || 0, stock_qty: Number(f.stock_qty), reorder_level: Number(f.reorder_level) };
     if (isNew) await post('/parts', body); else { delete body.stock_qty; await patch(`/parts/${part.id}`, body); }
     onSaved();
   });
@@ -85,7 +105,11 @@ function PartForm({ part, cats, onClose, onSaved }) {
         <Field label="Part number"><input value={f.part_no} onChange={s('part_no')} /></Field>
         <Field label="Category"><select value={f.category} onChange={s('category')}>{cats.map((c) => <option key={c}>{c}</option>)}</select></Field>
         <Field label="Name" wide><input value={f.name} onChange={s('name')} /></Field>
-        <Field label="Price (LKR)"><input type="number" min="0" value={f.unit_price} onChange={s('unit_price')} /></Field>
+        <Field label="Brand"><input value={f.brand} onChange={s('brand')} placeholder="e.g. Honda Genuine" /></Field>
+        <Field label="Rack / bin"><input value={f.location} onChange={s('location')} /></Field>
+        <Field label="Cost price (LKR)" hint="Updated automatically from GRNs"><input type="number" min="0" value={f.cost_price} onChange={s('cost_price')} /></Field>
+        <Field label="Selling price (LKR)" hint={margin !== null ? `Margin ${margin}%` : undefined}><input type="number" min="0" value={f.unit_price} onChange={s('unit_price')} /></Field>
+        <Field label="Unit"><select value={f.unit} onChange={s('unit')}>{[...new Set([f.unit, ...units])].map((u) => <option key={u}>{u}</option>)}</select></Field>
         {isNew && <Field label="Opening stock"><input type="number" min="0" value={f.stock_qty} onChange={s('stock_qty')} /></Field>}
         <Field label="Reorder level" hint="Flag as low stock at or below this"><input type="number" min="0" value={f.reorder_level} onChange={s('reorder_level')} /></Field>
       </div>
@@ -95,18 +119,19 @@ function PartForm({ part, cats, onClose, onSaved }) {
 
 function StockForm({ part, onClose, onSaved }) {
   const [delta, setDelta] = useState('');
-  const [mode, setMode] = useState('in');
+  const [mode, setMode] = useState('out');
   const { busy, error, run } = useAction();
   return (
-    <Modal title={`Stock · ${part.name}`} onClose={onClose}
+    <Modal title={`Adjust stock · ${part.name}`} onClose={onClose}
       footer={<><button className="btn ghost" onClick={onClose}>Cancel</button>
         <button className="btn primary" disabled={busy || !Number(delta)} onClick={() => run(async () => {
           await post(`/parts/${part.id}/stock`, { delta: mode === 'in' ? Number(delta) : -Number(delta) }); onSaved();
         })}>Save</button></>}>
       <ErrorBox error={error} />
-      <p>Current stock: <b>{part.stock_qty}</b></p>
+      <p>Current stock: <b>{part.stock_qty} {part.unit}</b></p>
+      <p className="small muted">For stock bought from a supplier use a GRN instead, so cost and supplier are recorded.</p>
       <div className="grid2">
-        <Field label="Action"><select value={mode} onChange={(e) => setMode(e.target.value)}><option value="in">Received (+)</option><option value="out">Write off / correction (−)</option></select></Field>
+        <Field label="Adjustment"><select value={mode} onChange={(e) => setMode(e.target.value)}><option value="out">Write off / damaged (−)</option><option value="in">Found / stock count correction (+)</option></select></Field>
         <Field label="Quantity"><input type="number" min="1" autoFocus value={delta} onChange={(e) => setDelta(e.target.value)} /></Field>
       </div>
     </Modal>

@@ -19,6 +19,8 @@ export const config = {
   // With Nginx you can leave this off and let Nginx serve client/dist.
   serveClient: process.env.SERVE_CLIENT === 'true',
   clientDist: process.env.CLIENT_DIST || new URL('../../client/dist', import.meta.url).pathname,
+  // Where uploaded photos/receipts are stored. Back this folder up too.
+  uploadDir: process.env.UPLOAD_DIR || new URL('../uploads', import.meta.url).pathname,
   publicBaseUrl: process.env.PUBLIC_BASE_URL || 'http://localhost:5173',
 
   notify: {

@@ -2,19 +2,19 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { get, patch, post } from '../api.js';
 import { useAuth } from '../auth.jsx';
-import { ErrorBox, Field, Loading, Modal, StatusBadge, useAction, useLoad } from '../components/ui.jsx';
+import { DeliveryBadge, ErrorBox, Field, Loading, Modal, StatusBadge, useAction, useLoad } from '../components/ui.jsx';
 import { fmtMobile, fmtReg, fmtDate, fmtDateTime, money, HONDA_MODELS, YEARS } from '../lib.js';
 
 export default function CustomerDetail() {
   const { id } = useParams();
-  const { user } = useAuth();
   const c = useLoad(() => get(`/customers/${id}`), [id]);
   const [edit, setEdit] = useState(false);
   const [addBike, setAddBike] = useState(false);
   if (c.loading && !c.data) return <Loading />;
   if (c.error && !c.data) return <div className="page"><ErrorBox error={c.error} /></div>;
   const d = c.data;
-  const staff = user.role !== 'mechanic';
+  const { can } = useAuth();
+  const staff = can('customers.manage');
 
   return (
     <div className="page">
@@ -53,12 +53,12 @@ export default function CustomerDetail() {
         {d.jobs.length === 0 ? <p className="muted">No job cards yet.</p> : (
           <div className="table-wrap">
             <table className="table compact">
-              <thead><tr><th>Job</th><th>Bike</th><th>Service</th><th>Status</th><th>Opened</th><th className="num">Invoice</th></tr></thead>
+              <thead><tr><th>Job</th><th>Bike</th><th>Services</th><th>Status</th><th>Opened</th><th className="num">Invoice</th></tr></thead>
               <tbody>
                 {d.jobs.map((j) => (
                   <tr key={j.id}>
-                    <td><Link to={`/jobs/${j.id}`}>{j.job_no}</Link></td><td>{fmtReg(j.reg_no)}</td><td>{j.service_type}</td>
-                    <td><StatusBadge status={j.status} /></td><td className="small">{fmtDateTime(j.created_at)}</td>
+                    <td><Link to={`/jobs/${j.id}`}>{j.job_no}</Link></td><td>{fmtReg(j.reg_no)}</td><td className="small">{j.services || '—'}</td>
+                    <td><StatusBadge status={j.status} /> <DeliveryBadge status={j.delivery_status} /></td><td className="small">{fmtDateTime(j.created_at)}</td>
                     <td className="num">{j.total != null ? money(j.total) : '—'}</td>
                   </tr>
                 ))}

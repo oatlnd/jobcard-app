@@ -32,6 +32,36 @@ export async function api(path, { method = 'GET', body, params } = {}) {
   return data;
 }
 
+/** Upload files (multipart). files: File[] */
+export async function upload(path, files) {
+  const fd = new FormData();
+  for (const f of files) fd.append('files', f, f.name);
+  const headers = {};
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(`/api${path}`, { method: 'POST', headers, body: fd });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(res.status, data.error || `Upload failed (${res.status})`);
+  return data;
+}
+
+/** Download rows as a CSV file (opens in Excel). columns: [[header, key or fn], ...] */
+export function downloadCsv(filename, rows, columns) {
+  const esc = (v) => {
+    const s = v === null || v === undefined ? '' : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lines = [columns.map(([h]) => esc(h)).join(',')];
+  for (const r of rows) lines.push(columns.map(([, k]) => esc(typeof k === 'function' ? k(r) : r[k])).join(','));
+  const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+}
+
 export const get = (p, params) => api(p, { params });
 export const post = (p, body) => api(p, { method: 'POST', body: body ?? {} });
 export const patch = (p, body) => api(p, { method: 'PATCH', body });

@@ -79,7 +79,7 @@ export async function queueServiceReminders({ ignoreHours = false } = {}) {
        AND b.next_service_due_date <= CURRENT_DATE + $1::int
        AND b.next_service_due_date >= CURRENT_DATE - 30
        AND b.reminder_sent_for IS DISTINCT FROM b.next_service_due_date
-       AND NOT EXISTS (SELECT 1 FROM job_cards j WHERE j.bike_id = b.id AND j.status NOT IN ('DELIVERED','CANCELLED'))
+       AND NOT EXISTS (SELECT 1 FROM job_cards j WHERE j.bike_id = b.id AND j.status <> 'CANCELLED' AND j.delivery_status <> 'DELIVERED')
      LIMIT 200`,
     [before],
   );

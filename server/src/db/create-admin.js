@@ -13,8 +13,8 @@ if (!username || !password || password.length < 6) {
 await migrate({ log: () => {} });
 const hash = await bcrypt.hash(password, 10);
 await pool.query(
-  `INSERT INTO users (name, username, password_hash, role) VALUES ($1, lower($2), $3, 'admin')
-   ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash, role = 'admin', active = TRUE`,
+  `INSERT INTO users (name, username, password_hash, role_id) VALUES ($1, lower($2), $3, (SELECT id FROM roles WHERE is_system LIMIT 1))
+   ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash, role_id = EXCLUDED.role_id, active = TRUE`,
   [name, username, hash],
 );
 console.log(`Admin "${username.toLowerCase()}" is ready.`);

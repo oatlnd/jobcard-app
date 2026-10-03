@@ -40,7 +40,7 @@ export default function Invoices() {
             <tbody>
               {data?.map((i) => (
                 <tr key={i.id}>
-                  <td><Link to={`/jobs/${i.job_card_id}/invoice`} target="_blank">{i.invoice_no}</Link></td>
+                  <td><a href={`/print/job/${i.job_card_id}?doc=invoice&format=a4`} target="_blank" rel="noreferrer">{i.invoice_no}</a></td>
                   <td className="small">{fmtDate(i.issued_at)}</td>
                   <td><Link to={`/jobs/${i.job_card_id}`}>{i.job_no}</Link></td>
                   <td>{i.customer_name}</td><td>{fmtReg(i.reg_no)}</td>
