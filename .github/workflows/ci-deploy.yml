@@ -1,20 +1,29 @@
 # Runs the tests on every pull request and push.
-# After a merge to main (and only if the tests pass) it deploys to the VPS over SSH.
+# After a merge to main (and only if the tests pass) it deploys the LIVE site over SSH.
+# TEST SITE (staging): push to the "staging" branch, or Actions → Test and deploy →
+#   Run workflow → pick your branch → Target: staging. See docs/STAGING.md.
 #
 # One-time setup (see docs/GITHUB.md):
 #   Repo → Settings → Secrets and variables → Actions → New repository secret
 #     VPS_HOST     the VPS IP address, e.g. 72.61.10.25
 #     VPS_USER     ramana
 #     VPS_SSH_KEY  the private key GitHub uses to log in to the VPS
-#   Optional: VPS_PORT (default 22), VPS_APP_DIR (default /home/ramana/jobcard-app)
+#   Optional: VPS_PORT (default 22), VPS_APP_DIR (default /home/ramana/jobcard-app),
+#             VPS_STAGING_DIR (default /home/ramana/jobcard-staging)
 #   Auto-deploy stays off until VPS_HOST is set, so tests can run before the server exists.
 name: Test and deploy
 
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, staging]
   workflow_dispatch:        # "Run workflow" button in the Actions tab
+    inputs:
+      target:
+        description: Where to deploy the chosen branch
+        type: choice
+        options: [staging, production]
+        default: staging
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -87,7 +96,11 @@ jobs:
   deploy:
     name: Deploy to VPS
     needs: test
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    # Live site: only ever from main (merge, or Run workflow on main with Target: production)
+    if: >-
+      github.ref == 'refs/heads/main' && (
+        github.event_name == 'push' ||
+        (github.event_name == 'workflow_dispatch' && inputs.target == 'production'))
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: production
@@ -122,6 +135,58 @@ jobs:
         run: |
           ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" -o BatchMode=yes "$SSH_USER@$VPS_HOST" \
             "bash -lc 'cd \"$APP_DIR\" && ./deploy/update.sh main'"
+
+      - name: Remove key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
+
+  deploy-staging:
+    name: Deploy to TEST SITE
+    needs: test
+    # Any branch: push to "staging", or Run workflow with Target: staging
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/staging') ||
+      (github.event_name == 'workflow_dispatch' && inputs.target == 'staging')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: staging
+    concurrency:
+      group: deploy-staging     # one test-site deploy at a time
+      cancel-in-progress: false
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+    steps:
+      - name: Check deploy settings
+        id: check
+        run: |
+          if [ -z "$VPS_HOST" ]; then
+            echo "VPS_HOST secret not set yet - skipping deploy."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up SSH key
+        if: steps.check.outputs.skip != 'true'
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          SSH_PORT: ${{ secrets.VPS_PORT || '22' }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$SSH_PORT" -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Pull, build and restart the test site
+        if: steps.check.outputs.skip != 'true'
+        env:
+          SSH_USER: ${{ secrets.VPS_USER }}
+          SSH_PORT: ${{ secrets.VPS_PORT || '22' }}
+          APP_DIR: ${{ secrets.VPS_STAGING_DIR || '/home/ramana/jobcard-staging' }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          case "$BRANCH" in *[!A-Za-z0-9._/-]*) echo "Unsafe branch name: $BRANCH"; exit 1 ;; esac
+          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" -o BatchMode=yes "$SSH_USER@$VPS_HOST" \
+            "bash -lc 'cd \"$APP_DIR\" && ./deploy/update.sh \"$BRANCH\"'"
+          echo "### Test site now runs \`$BRANCH\`" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Remove key
         if: always()

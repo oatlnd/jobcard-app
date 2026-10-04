@@ -3,10 +3,10 @@
 # Add to crontab (crontab -e):
 #   0 2 * * * /home/ramana/jobcard-app/deploy/backup.sh >> /home/ramana/backups/backup.log 2>&1
 set -euo pipefail
+# Reads DATABASE_URL, UPLOAD_DIR and (optional) BACKUP_DIR from the server .env
+source <(grep -E '^(DATABASE_URL|UPLOAD_DIR|BACKUP_DIR)=' "$(dirname "$0")/../server/.env")
 DIR="${BACKUP_DIR:-$HOME/backups}"
 mkdir -p "$DIR"
-# Reads DATABASE_URL from the server .env
-source <(grep -E '^(DATABASE_URL|UPLOAD_DIR)=' "$(dirname "$0")/../server/.env")
 STAMP=$(date +%F_%H%M)
 FILE="$DIR/jobcards_$STAMP.sql.gz"
 pg_dump "$DATABASE_URL" | gzip > "$FILE"

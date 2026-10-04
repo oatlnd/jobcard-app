@@ -32,7 +32,7 @@ export function createApp() {
   app.use(cors({ origin: config.corsOrigin === '*' ? true : config.corsOrigin.split(',') }));
   app.use(express.json({ limit: '1mb' }));
 
-  app.get('/api/health', (_req, res) => res.json({ ok: true, time: new Date().toISOString() }));
+  app.get('/api/health', (_req, res) => res.json({ ok: true, env: config.deployEnv, time: new Date().toISOString() }));
 
   // Public (no login)
   app.use('/api/auth', authRoutes);

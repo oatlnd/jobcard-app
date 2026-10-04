@@ -30,6 +30,7 @@ import Attendance from './pages/Attendance.jsx';
 import Advances from './pages/Advances.jsx';
 import Payroll, { PayrollRun, PayslipPrint } from './pages/Payroll.jsx';
 import PublicStatus from './pages/PublicStatus.jsx';
+import EnvBanner from './components/EnvBanner.jsx';
 
 function RequireAuth({ children, perms }) {
   const { user, ready, can } = useAuth();
@@ -53,6 +54,8 @@ const P = (perms, el) => <RequireAuth perms={perms}>{el}</RequireAuth>;
 
 export default function App() {
   return (
+    <>
+    <EnvBanner />
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/status" element={<PublicStatus />} />
@@ -92,6 +95,7 @@ export default function App() {
         <Route path="*" element={<HomeRedirect />} />
       </Route>
     </Routes>
+    </>
   );
 }
 

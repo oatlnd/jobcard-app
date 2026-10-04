@@ -507,3 +507,7 @@ a.chip.chip-on, .chip.chip-on { background: var(--red); border-color: var(--red)
   .att-table td:first-child, .att-table td:nth-child(2), .att-table td:last-child { grid-column: 1 / -1; }
   .att-table input[type="time"] { width: 100%; }
 }
+
+/* Test-site banner (DEPLOY_ENV=staging) */
+.env-banner { background: #f59e0b; color: #1f2328; text-align: center; font-weight: 700; font-size: .85rem; padding: 6px 12px; letter-spacing: .01em; }
+@media print { .env-banner { display: none; } }

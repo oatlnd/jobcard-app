@@ -8,8 +8,15 @@ function required(name) {
 
 const isProd = process.env.NODE_ENV === 'production';
 
+// "production" (the real workshop) or "staging" (the test site).
+// On staging, customer messages are ALWAYS printed to the log instead of being sent.
+const deployEnv = process.env.DEPLOY_ENV === 'staging' ? 'staging' : 'production';
+const isStaging = deployEnv === 'staging';
+
 export const config = {
   isProd,
+  deployEnv,
+  isStaging,
   port: Number(process.env.PORT || 3000),
   databaseUrl: required('DATABASE_URL'),
   jwtSecret: isProd ? required('JWT_SECRET') : process.env.JWT_SECRET || 'dev-only-secret-change-me',
@@ -25,9 +32,9 @@ export const config = {
 
   notify: {
     // console | whatsapp
-    whatsappProvider: process.env.WHATSAPP_PROVIDER || 'console',
+    whatsappProvider: isStaging ? 'console' : process.env.WHATSAPP_PROVIDER || 'console',
     // console | notifylk
-    smsProvider: process.env.SMS_PROVIDER || 'console',
+    smsProvider: isStaging ? 'console' : process.env.SMS_PROVIDER || 'console',
     workerIntervalMs: Number(process.env.WORKER_INTERVAL_MS || 5000),
     maxAttempts: Number(process.env.NOTIFY_MAX_ATTEMPTS || 4),
     whatsapp: {
