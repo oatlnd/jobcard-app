@@ -108,6 +108,10 @@ export const DEFAULT_ROLES = {
       'attendance.manage', 'advances.manage', 'payroll.view', 'payroll.run', 'dashboard.finance',
     ],
   },
+  Cashier: {
+    description: 'Takes payments, prints receipts, hands over bikes',
+    permissions: ['jobs.view', 'jobs.view_all', 'jobs.print', 'jobs.delivery', 'payments.record', 'invoices.view', 'customers.view'],
+  },
   'Store Keeper': {
     description: 'Parts, stock, purchase orders and GRN',
     permissions: ['jobs.view', 'jobs.view_all', 'parts.view', 'parts.manage', 'stock.adjust', 'masters.manage', 'purchasing.view', 'purchasing.manage', 'grn.manage'],

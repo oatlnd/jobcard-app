@@ -511,3 +511,60 @@ a.chip.chip-on, .chip.chip-on { background: var(--red); border-color: var(--red)
 /* Test-site banner (DEPLOY_ENV=staging) */
 .env-banner { background: #f59e0b; color: #1f2328; text-align: center; font-weight: 700; font-size: .85rem; padding: 6px 12px; letter-spacing: .01em; }
 @media print { .env-banner { display: none; } }
+
+/* ===== v3: walk-in, free services, cashier ===== */
+.kind-tag { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: .72rem; font-weight: 800; letter-spacing: .04em; vertical-align: middle; white-space: nowrap; }
+.k-FREE_1, .k-FREE_2 { background: #e8f1ff; color: #1d4ed8; border: 1px solid #c7d7fe; }
+.k-PAID { background: #f1f2f4; color: var(--ink-2); border: 1px solid var(--line); }
+.pay-DUE { background: #fff1e6; color: #b45309; }
+.pay-PAID { background: #e7f6ec; color: #157f3b; }
+.pay-REFUND { background: #f3e8ff; color: #6b21a8; }
+.tile-tags { display: flex; gap: 4px; flex-wrap: wrap; margin: 4px 0 2px; }
+
+.kind-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.kind-tile { display: flex; flex-direction: column; gap: 3px; text-align: left; padding: 12px; border: 2px solid var(--line); border-radius: var(--radius); background: #fff; cursor: pointer; font: inherit; color: var(--ink); }
+.kind-tile small { color: var(--muted); }
+.kind-tile:hover { border-color: #c9ccd2; }
+.kind-tile.on { border-color: var(--red); background: var(--red-soft); }
+.kind-tile.on.k-FREE_1, .kind-tile.on.k-FREE_2 { border-color: #2563eb; background: #eef4ff; }
+@media (max-width: 640px) { .kind-tiles { grid-template-columns: 1fr; } }
+
+.pay-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.free-line { padding: 8px 10px; margin-bottom: 8px; border-radius: 8px; background: #eef4ff; color: #1e3a8a; font-size: .92rem; }
+
+.receipts { list-style: none; padding: 0; margin: 12px 0 0; border-top: 1px solid var(--line); }
+.receipts li { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid #f0f1f3; font-size: .9rem; flex-wrap: wrap; }
+
+.cashier-search { display: flex; gap: 10px; align-items: center; }
+.cashier-search input { flex: 1; min-width: 0; }
+.pay-list { display: flex; flex-direction: column; gap: 8px; }
+.pay-row { display: flex; align-items: center; gap: 14px; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: #fff; }
+.pay-row.state-DUE { border-left: 4px solid #f59e0b; }
+.pay-row.state-REFUND { border-left: 4px solid #9333ea; }
+.pay-row-main { flex: 1; min-width: 0; }
+.pay-row-amt { text-align: right; font-size: 1.1rem; white-space: nowrap; }
+@media (max-width: 640px) {
+  .pay-row { flex-wrap: wrap; }
+  .pay-row-main { flex-basis: 100%; }
+  .pay-row-amt { flex: 1; text-align: left; }
+}
+
+.pay-form { display: flex; flex-direction: column; gap: 12px; }
+.pay-head { padding: 10px 12px; background: #f7f8fa; border-radius: 8px; }
+.pay-due { margin-top: 6px; font-size: 1.05rem; }
+.pay-due strong { font-size: 1.35rem; }
+.pay-methods { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.pay-method { padding: 12px 8px; border: 2px solid var(--line); border-radius: var(--radius); background: #fff; font: inherit; font-weight: 700; cursor: pointer; color: var(--ink); }
+.pay-method.on { border-color: var(--red); background: var(--red-soft); }
+.pay-form .field { display: flex; flex-direction: column; gap: 4px; font-size: .88rem; color: var(--ink-2); }
+.pay-form .field input { font-size: 1.2rem; font-weight: 700; padding: 10px 12px; }
+.change-box { padding: 12px 14px; border-radius: var(--radius); background: #e7f6ec; color: #135c2c; font-size: 1.05rem; }
+.change-box strong { font-size: 1.5rem; margin-left: 6px; }
+.quick-cash { display: flex; flex-wrap: wrap; gap: 4px; }
+.pay-done { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; padding: 8px 0; }
+.pay-done-tick { width: 56px; height: 56px; border-radius: 50%; background: #e7f6ec; color: #157f3b; font-size: 2rem; display: grid; place-items: center; }
+
+.r-big { font-size: 16px; font-weight: 800; text-align: center; margin: 4px 0; letter-spacing: .04em; }
+.r-stamp { text-align: center; font-size: 16px; font-weight: 800; margin: 6px 0; letter-spacing: .15em; }
+.r-paynote { text-align: center; font-weight: 800; border: 2px solid #000; padding: 6px; margin: 6px 0; }
+.paper-paynote { margin: 12px 0; padding: 10px 14px; border: 2px solid #000; text-align: center; font-size: 1.05rem; }

@@ -5,10 +5,10 @@ import { useAuth } from '../auth.jsx';
 import { ErrorBox, Field, useAction, useLoad } from '../components/ui.jsx';
 import JobItems from '../components/JobItems.jsx';
 import { ServicePicker, PartPicker, CustomPicker } from '../components/ItemPicker.jsx';
-import { HONDA_MODELS, YEARS, fmtMobile, fmtReg, localToIso, fmtDate, STATUS_LABEL, money, isServiceItem } from '../lib.js';
+import { HONDA_MODELS, YEARS, fmtMobile, localToIso, fmtDate, STATUS_LABEL, money, isServiceItem, SERVICE_KIND_LABEL, isFreeService, bikeLabel } from '../lib.js';
 
 const emptyCustomer = { name: '', mobile: '', suburb: '', preferred_lang: 'ta' };
-const emptyBike = { model: '', modelOther: '', year: '', engine_no: '', chassis_no: '' };
+const emptyBike = { model: '', modelOther: '', year: '', engine_no: '', chassis_no: '', sale_date: '' };
 
 export default function NewJob() {
   const nav = useNavigate();
@@ -20,6 +20,10 @@ export default function NewJob() {
   const [bike, setBike] = useState(emptyBike);
   const [job, setJob] = useState({ odometer: '', complaint: '', fuel_level: '', mechanic_id: '', promised_at: '', delivery_method: 'PICKUP', delivery_address: '' });
   const [items, setItems] = useState([]);
+  const [kind, setKind] = useState('PAID');
+  const [payUpfront, setPayUpfront] = useState(true);
+  const [unreg, setUnreg] = useState(false);
+  const [bikeFix, setBikeFix] = useState({ engine_no: '', chassis_no: '', sale_date: '' }); // missing details on an existing bike
   const [picker, setPicker] = useState(null);
   const search = useAction();
   const save = useAction();
@@ -49,13 +53,17 @@ export default function NewJob() {
       delivery_method: job.delivery_method,
       delivery_address: job.delivery_method === 'HOME_DELIVERY' ? job.delivery_address : null,
       items: items.map(({ _key, part_no, ...i }) => (i.item_type === 'service' ? { ...i, description: canPrice ? i.description : undefined } : i)),
+      service_kind: kind,
+      pay_upfront: payUpfront,
     };
     if (lookup) {
       body.bike_id = lookup.id;
+      if (bikeFix.engine_no || bikeFix.chassis_no || bikeFix.sale_date) body.bike_update = bikeFix;
     } else {
       body.customer = customer;
       body.bike = {
-        reg_no: reg,
+        reg_no: unreg ? null : reg,
+        sale_date: bike.sale_date || null,
         model: bike.model === 'Other' ? bike.modelOther : bike.model,
         year: bike.year && bike.year !== 'Other' ? Number(bike.year) : null,
         engine_no: bike.engine_no,
@@ -71,16 +79,18 @@ export default function NewJob() {
   const c = (k) => (e) => setCustomer({ ...customer, [k]: e.target.value });
   const b = (k) => (e) => setBike({ ...bike, [k]: e.target.value });
   const j = (k) => (e) => setJob({ ...job, [k]: e.target.value });
-  const step = lookup === null ? 3 : 2;
+  const free = isFreeService(kind);
+  const step = lookup === null ? 4 : 3;
+  const used = (k) => (lookup?.free_services || []).find((f) => f.kind === k);
 
   return (
     <div className="page narrow">
       <div className="page-head"><h1>New job card</h1></div>
 
       <form className="card" onSubmit={doLookup}>
-        <h2 className="card-title">1 · Bike number</h2>
+        <h2 className="card-title">1 · Find the bike</h2>
         <div className="row">
-          <input className="reg-input" placeholder="e.g. NP BCJ-4521" value={reg} autoFocus
+          <input className="reg-input" placeholder="Bike no. (NP BCJ-4521) or chassis / engine no." value={reg} autoFocus
             onChange={(e) => { setReg(e.target.value.toUpperCase()); setLookup(undefined); }} />
           <button className="btn" disabled={search.busy || reg.trim().length < 3}>{search.busy ? 'Searching…' : 'Find bike'}</button>
         </div>
@@ -88,10 +98,14 @@ export default function NewJob() {
         {lookup && (
           <div className="found">
             <div>
-              <strong>{fmtReg(lookup.reg_no)}</strong> · {lookup.model} {lookup.year || ''}
+              <strong>{bikeLabel(lookup)}</strong> · {lookup.model} {lookup.year || ''}
               <div className="muted small">
                 {lookup.customer.name} · {fmtMobile(lookup.customer.mobile)} {lookup.customer.suburb ? `· ${lookup.customer.suburb}` : ''}
                 {lookup.last_service_date && <> · Last service {fmtDate(lookup.last_service_date)}</>}
+              </div>
+              <div className="muted small">
+                Engine {lookup.engine_no || '—'} · Chassis {lookup.chassis_no || '—'}{lookup.sale_date && <> · Sold {fmtDate(lookup.sale_date)}</>}
+                {lookup.free_services?.length > 0 && <> · Free services done: {lookup.free_services.map((f) => `${SERVICE_KIND_LABEL[f.kind]} (${fmtDate(f.date)})`).join(', ')}</>}
               </div>
             </div>
             {can('customers.view') && <Link className="small" to={`/customers/${lookup.customer.id}`}>View history</Link>}
@@ -102,7 +116,7 @@ export default function NewJob() {
             This bike already has an open job card: <Link to={`/jobs/${lookup.open_job.id}`}>{lookup.open_job.job_no}</Link> ({STATUS_LABEL[lookup.open_job.status]}).
           </div>
         )}
-        {lookup === null && <div className="alert info">New bike – enter the customer and bike details below.</div>}
+        {lookup === null && <div className="alert info">Not found – enter the customer and bike details below.</div>}
       </form>
 
       {lookup !== undefined && !lookup?.open_job && (
@@ -110,6 +124,13 @@ export default function NewJob() {
           {lookup === null && (
             <div className="card">
               <h2 className="card-title">2 · Customer & bike</h2>
+              <label className="toggle" style={{ marginBottom: 10 }}>
+                <input type="checkbox" checked={unreg} onChange={(e) => {
+                  setUnreg(e.target.checked);
+                  if (e.target.checked && !bike.chassis_no) setBike({ ...bike, chassis_no: reg });
+                }} /> Brand-new bike – no number plate yet
+              </label>
+              {!unreg && <p className="small muted">Bike number: <strong>{reg}</strong></p>}
               <div className="grid2">
                 <Field label="Customer name *"><input value={customer.name} onChange={c('name')} required /></Field>
                 <Field label="Mobile number *" hint="e.g. 077 123 4567"><input value={customer.mobile} onChange={c('mobile')} inputMode="tel" required /></Field>
@@ -134,11 +155,42 @@ export default function NewJob() {
                     <option value="Other">Other / older</option>
                   </select>
                 </Field>
-                <Field label="Engine no."><input value={bike.engine_no} onChange={b('engine_no')} /></Field>
-                <Field label="Chassis no."><input value={bike.chassis_no} onChange={b('chassis_no')} /></Field>
+                <Field label={`Engine no.${free ? ' *' : ''}`}><input value={bike.engine_no} onChange={b('engine_no')} required={free} /></Field>
+                <Field label={`Chassis no.${free || unreg ? ' *' : ''}`}><input value={bike.chassis_no} onChange={b('chassis_no')} required={free || unreg} /></Field>
+                <Field label="Date of sale"><input type="date" value={bike.sale_date} onChange={b('sale_date')} /></Field>
               </div>
             </div>
           )}
+
+          <div className="card">
+            <h2 className="card-title">{step - 1} · Service type</h2>
+            <div className="kind-tiles">
+              {['FREE_1', 'FREE_2', 'PAID'].map((k) => (
+                <button type="button" key={k} className={`kind-tile k-${k}${kind === k ? ' on' : ''}`} onClick={() => setKind(k)}>
+                  <strong>{k === 'PAID' ? 'Paid service / repair' : SERVICE_KIND_LABEL[k]}</strong>
+                  <small>{k === 'PAID' ? 'Customer pays labour + parts' : 'Labour FREE · pays oil & parts'}</small>
+                  {used(k) && <small className="late-text">Already done on {used(k).job_no}</small>}
+                </button>
+              ))}
+            </div>
+            {free && (
+              <div className="alert info" style={{ marginTop: 10 }}>
+                {SERVICE_KIND_LABEL[kind]}: labour is free (claimed from Honda). Add the oil and any parts below – the customer pays for those.
+                Engine no., chassis no. and odometer are required.
+              </div>
+            )}
+            {free && lookup && (!lookup.engine_no || !lookup.chassis_no || !lookup.sale_date) && (
+              <div className="grid2" style={{ marginTop: 10 }}>
+                {!lookup.engine_no && <Field label="Engine no. *"><input required value={bikeFix.engine_no} onChange={(e) => setBikeFix({ ...bikeFix, engine_no: e.target.value })} /></Field>}
+                {!lookup.chassis_no && <Field label="Chassis no. *"><input required value={bikeFix.chassis_no} onChange={(e) => setBikeFix({ ...bikeFix, chassis_no: e.target.value })} /></Field>}
+                {!lookup.sale_date && <Field label="Date of sale"><input type="date" value={bikeFix.sale_date} onChange={(e) => setBikeFix({ ...bikeFix, sale_date: e.target.value })} /></Field>}
+              </div>
+            )}
+            <label className="toggle" style={{ marginTop: 12 }}>
+              <input type="checkbox" checked={payUpfront} onChange={(e) => setPayUpfront(e.target.checked)} />
+              Customer pays at the cashier before work starts
+            </label>
+          </div>
 
           <div className="card">
             <h2 className="card-title">{step} · Job details</h2>
@@ -146,7 +198,7 @@ export default function NewJob() {
               <Field label="Customer complaint / request" wide>
                 <textarea rows="2" value={job.complaint} onChange={j('complaint')} placeholder="e.g. Regular service, brake noise, starting trouble" />
               </Field>
-              <Field label="Odometer (km)"><input type="number" min="0" value={job.odometer} onChange={j('odometer')} /></Field>
+              <Field label={`Odometer (km)${free ? ' *' : ''}`}><input type="number" min="0" value={job.odometer} onChange={j('odometer')} required={free} /></Field>
               <Field label="Fuel level">
                 <select value={job.fuel_level} onChange={j('fuel_level')}>
                   <option value="">—</option><option>Empty</option><option>¼</option><option>½</option><option>¾</option><option>Full</option>
@@ -193,8 +245,8 @@ export default function NewJob() {
 
           <ErrorBox error={save.error} />
           <div className="actions-bar">
-            <button className="btn primary" disabled={save.busy}>{save.busy ? 'Saving…' : 'Open job card'}</button>
-            <span className="muted small">The customer gets a WhatsApp/SMS confirmation automatically.</span>
+            <button className="btn primary" disabled={save.busy}>{save.busy ? 'Saving…' : payUpfront ? 'Open job card & send to cashier' : 'Open job card'}</button>
+            <span className="muted small">Next: print the job card and send the customer to the cashier.</span>
           </div>
         </form>
       )}

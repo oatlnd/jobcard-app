@@ -22,9 +22,13 @@ export const customerSchema = z.object({
 });
 
 const yearNow = new Date().getFullYear() + 1;
+const dateField = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'use YYYY-MM-DD').optional().nullable().or(z.literal('').transform(() => null));
+
 export const bikeSchema = z.object({
-  reg_no: z.string().transform((v, ctx) => {
+  // Empty for a brand-new bike that has no number plate yet – see bikeRegNo()
+  reg_no: z.string().optional().nullable().transform((v, ctx) => {
     const n = normalizeRegNo(v);
+    if (!n) return null;
     if (n.length < 4) ctx.addIssue({ code: 'custom', message: 'enter the bike number' });
     return n;
   }),
@@ -33,7 +37,16 @@ export const bikeSchema = z.object({
   engine_no: optText,
   chassis_no: optText,
   last_odometer: z.coerce.number().int().min(0).optional().nullable(),
+  sale_date: dateField,
 });
+
+/** Registration number to store. Bikes without a number plate yet get "UNREG" + the end of the chassis number. */
+export function bikeRegNo(b) {
+  if (b.reg_no) return b.reg_no;
+  const ch = normalizeRegNo(b.chassis_no);
+  if (ch.length < 5) throw new HttpError(400, 'Enter the bike number – or the chassis number if the bike is not registered yet');
+  return `UNREG${ch.slice(-10)}`;
+}
 
 // List / search customers by name, mobile or bike number
 r.get('/', requirePerm('customers.view'), async (req, res) => {
@@ -94,9 +107,9 @@ r.post('/', requirePerm('customers.manage'), async (req, res) => {
     let bike = null;
     if (d.bike) {
       const b = await c.query(
-        `INSERT INTO bikes (customer_id, reg_no, model, year, engine_no, chassis_no, last_odometer)
-         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-        [customer.id, d.bike.reg_no, d.bike.model, d.bike.year, d.bike.engine_no, d.bike.chassis_no, d.bike.last_odometer],
+        `INSERT INTO bikes (customer_id, reg_no, model, year, engine_no, chassis_no, last_odometer, sale_date)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+        [customer.id, bikeRegNo(d.bike), d.bike.model, d.bike.year, d.bike.engine_no, d.bike.chassis_no, d.bike.last_odometer, d.bike.sale_date],
       );
       bike = b.rows[0];
     }

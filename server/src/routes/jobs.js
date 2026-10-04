@@ -7,11 +7,13 @@ import {
   STATUSES, DELIVERY_STATUSES, canTransition, canDeliveryTransition, permForTransition,
 } from '../lib/status.js';
 import {
-  loadJob, sanitizeJob, assertEditable, assertCanSee, computeTotals, scopeSql, OPEN_SQL,
+  loadJob, sanitizeJob, assertEditable, assertCanSee, computeTotals, scopeSql, OPEN_SQL, canSeeMoney,
 } from '../lib/jobs.js';
+import { balanceOf, createInvoice, paymentState } from '../lib/payments.js';
+import { round2 } from '../lib/util.js';
 import { queueNotification, statusUrl, fmtMoney, getSettings } from '../lib/notify.js';
 import { emitJobChanged, emitPartsChanged } from '../realtime.js';
-import { customerSchema, bikeSchema } from './customers.js';
+import { customerSchema, bikeSchema, bikeRegNo } from './customers.js';
 
 const r = Router();
 r.use(requirePerm('jobs.view'));
@@ -21,8 +23,9 @@ const send = async (res, jobId, user, status = 200) => res.status(status).json(s
 // Key info for lists and the board
 const LIST_SQL = `
   SELECT j.id, j.job_no, j.status, j.delivery_status, j.delivery_method, j.complaint, j.promised_at, j.created_at, j.updated_at,
-         j.delivered_at, j.mechanic_id, m.name AS mechanic_name, b.reg_no, b.model, b.year,
-         c.name AS customer_name, c.mobile, c.suburb, j.odometer,
+         j.delivered_at, j.mechanic_id, m.name AS mechanic_name, b.reg_no, b.model, b.year, b.chassis_no,
+         c.name AS customer_name, c.mobile, c.suburb, j.odometer, j.service_kind, j.pay_upfront,
+         (SELECT COALESCE(sum(CASE WHEN kind = 'REFUND' THEN -amount ELSE amount END),0) FROM job_payments WHERE job_card_id = j.id) AS paid_total,
          (SELECT string_agg(description, ', ' ORDER BY id) FROM job_items WHERE job_card_id = j.id AND item_type IN ('service','custom_service')) AS services,
          (SELECT count(*)::int FROM job_items WHERE job_card_id = j.id AND item_type IN ('part','custom_part')) AS part_lines,
          (SELECT COALESCE(sum(line_total),0) FROM job_items WHERE job_card_id = j.id) - j.discount AS items_total,
@@ -33,10 +36,17 @@ const LIST_SQL = `
   LEFT JOIN users m ON m.id = j.mechanic_id
   LEFT JOIN invoices i ON i.job_card_id = j.id`;
 
-const stripMoney = (user) => (row) => {
-  if (hasPerm(user, 'jobs.pricing')) return row;
-  const { items_total, invoice_total, paid_amount, ...rest } = row;
-  return rest;
+// Adds payment_state ('DUE' / 'PAID' / 'REFUND') and hides amounts from people who may not see them
+const listRows = async (rows, user) => {
+  const taxRate = Number((await getSettings()).billing?.tax_rate || 0);
+  const money = canSeeMoney(user);
+  return rows.map((row) => {
+    const due = row.invoice_total != null ? Number(row.invoice_total) : round2(Number(row.items_total) * (1 + taxRate / 100));
+    const out = { ...row, payment_state: paymentState(due, Number(row.paid_total)), amount_due: round2(due - Number(row.paid_total)) };
+    if (money) return out;
+    const { items_total, invoice_total, paid_amount, paid_total, amount_due, ...rest } = out;
+    return rest;
+  });
 };
 
 // Board: all open jobs plus those delivered today
@@ -52,7 +62,7 @@ r.get('/board', async (req, res) => {
      ORDER BY j.promised_at NULLS LAST, j.created_at`,
     params,
   );
-  res.json(rows.map(stripMoney(req.user)));
+  res.json(await listRows(rows, req.user));
 });
 
 // Job card list with filters
@@ -68,7 +78,8 @@ r.get('/', async (req, res) => {
   if (q) {
     params.push(`%${q.toLowerCase()}%`, `%${normalizeRegNo(q)}%`, `%${q.replace(/\D/g, '') || '~'}%`);
     const n = params.length;
-    where.push(`(lower(j.job_no) LIKE $${n - 2} OR lower(c.name) LIKE $${n - 2} OR b.reg_no LIKE $${n - 1} OR c.mobile LIKE $${n})`);
+    where.push(`(lower(j.job_no) LIKE $${n - 2} OR lower(c.name) LIKE $${n - 2} OR b.reg_no LIKE $${n - 1} OR c.mobile LIKE $${n}
+                 OR regexp_replace(upper(COALESCE(b.chassis_no,'')), '[^A-Z0-9]', '', 'g') LIKE $${n - 1})`);
   }
   if (req.query.from) add('j.created_at >= $?::date', req.query.from);
   if (req.query.to) add('j.created_at < $?::date + 1', req.query.to);
@@ -79,7 +90,7 @@ r.get('/', async (req, res) => {
      ORDER BY j.created_at DESC LIMIT 300`,
     params,
   );
-  res.json(rows.map(stripMoney(req.user)));
+  res.json(await listRows(rows, req.user));
 });
 
 r.get('/:id', async (req, res) => {
@@ -156,8 +167,27 @@ const createSchema = z.object({
   promised_at: z.string().datetime({ offset: true }).optional().nullable().or(z.literal('').transform(() => null)),
   delivery_method: z.enum(['PICKUP', 'HOME_DELIVERY']).default('PICKUP'),
   delivery_address: optText,
+  service_kind: z.enum(['FREE_1', 'FREE_2', 'PAID']).optional().nullable(),
+  pay_upfront: z.boolean().default(false),
+  // Fill in missing details on an existing bike (e.g. engine/chassis no for a free service)
+  bike_update: z.object({ engine_no: optText, chassis_no: optText, sale_date: bikeSchema.shape.sale_date }).optional(),
   items: z.array(itemSchema).max(100).default([]),
 });
+
+const FREE_LABEL = { FREE_1: 'Free service 1', FREE_2: 'Free service 2' };
+
+/** Free services need engine no, chassis no and odometer (for the Honda claim) and can be used once per bike. */
+async function checkFreeService(c, kind, bikeId, odometer, exceptJobId = 0) {
+  if (!FREE_LABEL[kind]) return;
+  const bike = (await c.query('SELECT engine_no, chassis_no FROM bikes WHERE id = $1', [bikeId])).rows[0];
+  if (!bike?.engine_no || !bike?.chassis_no) throw new HttpError(400, `${FREE_LABEL[kind]}: enter the engine number and chassis number`);
+  if (odometer == null) throw new HttpError(400, `${FREE_LABEL[kind]}: enter the odometer reading (km)`);
+  const used = (await c.query(
+    `SELECT job_no FROM job_cards WHERE bike_id = $1 AND service_kind = $2 AND status <> 'CANCELLED' AND id <> $3 LIMIT 1`,
+    [bikeId, kind, exceptJobId],
+  )).rows[0];
+  if (used) throw new HttpError(409, `${FREE_LABEL[kind]} was already given on job card ${used.job_no}`);
+}
 
 r.post('/', requirePerm('jobs.create'), async (req, res) => {
   const d = parse(createSchema, req.body);
@@ -181,26 +211,35 @@ r.post('/', requirePerm('jobs.create'), async (req, res) => {
           [d.customer.name, d.customer.mobile, d.customer.suburb, d.customer.email, d.customer.preferred_lang, d.customer.notes],
         )).rows[0];
       }
-      if ((await c.query('SELECT 1 FROM bikes WHERE reg_no = $1', [d.bike.reg_no])).rows[0]) {
-        throw new HttpError(409, `Bike ${d.bike.reg_no} is already registered. Search for it instead.`);
+      const regNo = bikeRegNo(d.bike);
+      if ((await c.query('SELECT 1 FROM bikes WHERE reg_no = $1', [regNo])).rows[0]) {
+        throw new HttpError(409, `Bike ${regNo} is already registered. Search for it instead.`);
       }
       bikeId = (await c.query(
-        `INSERT INTO bikes (customer_id, reg_no, model, year, engine_no, chassis_no, last_odometer) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-        [customer.id, d.bike.reg_no, d.bike.model, d.bike.year, d.bike.engine_no, d.bike.chassis_no, d.odometer ?? d.bike.last_odometer],
+        `INSERT INTO bikes (customer_id, reg_no, model, year, engine_no, chassis_no, last_odometer, sale_date) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+        [customer.id, regNo, d.bike.model, d.bike.year, d.bike.engine_no, d.bike.chassis_no, d.odometer ?? d.bike.last_odometer, d.bike.sale_date],
       )).rows[0].id;
     }
+    if (d.bike_update && d.bike_id) {
+      const u = d.bike_update;
+      await c.query(
+        `UPDATE bikes SET engine_no = COALESCE($1, engine_no), chassis_no = COALESCE($2, chassis_no), sale_date = COALESCE($3, sale_date) WHERE id = $4`,
+        [u.engine_no || null, u.chassis_no || null, u.sale_date || null, bikeId],
+      );
+    }
+    await checkFreeService(c, d.service_kind, bikeId, d.odometer);
 
     const open = (await c.query(`SELECT job_no FROM job_cards j WHERE bike_id = $1 AND ${OPEN_SQL}`, [bikeId])).rows[0];
     if (open) throw new HttpError(409, `This bike already has an open job card (${open.job_no})`);
 
     const job = (await c.query(
       `INSERT INTO job_cards (job_no, bike_id, customer_id, complaint, odometer, fuel_level, advisor_id, mechanic_id, promised_at,
-                              delivery_method, delivery_address, created_by)
+                              delivery_method, delivery_address, service_kind, pay_upfront, created_by)
        VALUES ('JC' || to_char(now(), 'YY') || '-' || lpad(nextval('job_no_seq')::text, 5, '0'),
-               $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$6)
+               $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$6)
        RETURNING id, job_no`,
       [bikeId, customer.id, d.complaint, d.odometer, d.fuel_level, req.user.id, d.mechanic_id || null, d.promised_at || null,
-        d.delivery_method, d.delivery_address],
+        d.delivery_method, d.delivery_address, d.service_kind || null, d.pay_upfront],
     )).rows[0];
     await c.query(
       `INSERT INTO job_status_history (job_card_id, from_status, to_status, note, changed_by) VALUES ($1, NULL, 'CHECKED_IN', 'Job card opened', $2)`,
@@ -232,6 +271,8 @@ const updateSchema = z.object({
   discount: money.optional(),
   delivery_method: z.enum(['PICKUP', 'HOME_DELIVERY']).optional(),
   delivery_address: optText,
+  service_kind: z.enum(['FREE_1', 'FREE_2', 'PAID']).optional().nullable(),
+  pay_upfront: z.boolean().optional(),
 });
 
 r.patch('/:id', async (req, res) => {
@@ -251,6 +292,10 @@ r.patch('/:id', async (req, res) => {
     } else if (!hasPerm(req.user, 'jobs.edit')) {
       throw new HttpError(403, 'You can only update the diagnosis');
     }
+  }
+  if (d.service_kind !== undefined || d.odometer !== undefined) {
+    const kind = d.service_kind !== undefined ? d.service_kind : job.service_kind;
+    await checkFreeService({ query }, kind, job.bike_id, d.odometer !== undefined ? d.odometer : job.odometer, jobId);
   }
   await query(
     `UPDATE job_cards SET ${keys.map((k, i) => `${k} = $${i + 1}`).join(', ')}, updated_at = now() WHERE id = $${keys.length + 1}`,
@@ -281,7 +326,11 @@ r.post('/:id/status', async (req, res) => {
 
     const items = (await c.query('SELECT * FROM job_items WHERE job_card_id = $1', [jobId])).rows;
     const invoice = (await c.query('SELECT * FROM invoices WHERE job_card_id = $1', [jobId])).rows[0];
-    if (status === 'QA_CHECK' && items.length === 0) throw new HttpError(400, 'Add the services and parts before sending to QA');
+    if (job.pay_upfront && job.status === 'CHECKED_IN' && status !== 'CANCELLED') {
+      const bal = await balanceOf(c, jobId);
+      if (bal.state === 'DUE') throw new HttpError(400, `Waiting for payment at the cashier (LKR ${bal.balance.toFixed(2)} due). Work starts once the receipt is with the bike.`);
+    }
+    if (status === 'QA_CHECK' && items.length === 0 && !FREE_LABEL[job.service_kind]) throw new HttpError(400, 'Add the services and parts before sending to QA');
     if (status === 'CANCELLED' && invoice) throw new HttpError(400, 'Cancel the invoice before cancelling the job card');
     if (job.status === 'COMPLETED' && invoice) throw new HttpError(400, 'Cancel the invoice before reopening the job');
 
@@ -337,8 +386,16 @@ r.post('/:id/delivery', requirePerm('jobs.delivery'), async (req, res) => {
     if (!canDeliveryTransition(job.delivery_status, d.delivery_status)) {
       throw new HttpError(400, `Cannot change delivery from ${job.delivery_status} to ${d.delivery_status}`);
     }
-    const invoice = (await c.query('SELECT * FROM invoices WHERE job_card_id = $1', [jobId])).rows[0];
-    if (d.delivery_status === 'DELIVERED' && !invoice) throw new HttpError(400, 'Create the invoice before delivering the bike');
+    if (d.delivery_status === 'DELIVERED') {
+      const hasInvoice = (await c.query('SELECT 1 FROM invoices WHERE job_card_id = $1', [jobId])).rows[0];
+      if (!hasInvoice && !job.pay_upfront) throw new HttpError(400, 'Create the invoice before delivering the bike');
+      // Pay-at-the-cashier jobs: the invoice is created automatically at hand-over
+      if (!hasInvoice) await createInvoice(c, jobId, req.user.id);
+      const bal = await balanceOf(c, jobId);
+      if (job.pay_upfront && bal.state === 'DUE') {
+        throw new HttpError(400, `Collect the balance of LKR ${bal.balance.toFixed(2)} at the cashier before handing over the bike`);
+      }
+    }
 
     const sets = ['delivery_status = $1', 'updated_at = now()'];
     const vals = [d.delivery_status, jobId];
@@ -446,15 +503,7 @@ r.post('/:id/invoice', requirePerm('invoices.manage'), async (req, res) => {
     if (!job) throw new HttpError(404, 'Job card not found');
     if (!['QA_CHECK', 'COMPLETED'].includes(job.status)) throw new HttpError(400, 'Invoice can be created once the job is in QA or completed');
     if ((await c.query('SELECT 1 FROM invoices WHERE job_card_id = $1', [jobId])).rows[0]) throw new HttpError(409, 'Invoice already exists');
-    const items = (await c.query('SELECT * FROM job_items WHERE job_card_id = $1', [jobId])).rows;
-    if (!items.length) throw new HttpError(400, 'No items to invoice');
-    const settings = await getSettings(c);
-    const t = computeTotals(items, job.discount, settings.billing?.tax_rate);
-    await c.query(
-      `INSERT INTO invoices (invoice_no, job_card_id, parts_total, labour_total, discount, tax_rate, tax_amount, total, issued_by)
-       VALUES ('INV' || to_char(now(), 'YY') || '-' || lpad(nextval('invoice_no_seq')::text, 5, '0'), $1,$2,$3,$4,$5,$6,$7,$8)`,
-      [jobId, t.parts_total, t.labour_total, t.discount, t.tax_rate, t.tax_amount, t.total, req.user.id],
-    );
+    await createInvoice(c, jobId, req.user.id);
   });
   emitJobChanged(jobId);
   await send(res, jobId, req.user, 201);

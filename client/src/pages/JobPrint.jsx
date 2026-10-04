@@ -6,7 +6,9 @@ import { useEffect } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { get } from '../api.js';
 import { ErrorBox, Loading, useLoad } from '../components/ui.jsx';
-import { fmtReg, fmtMobile, fmtDate, fmtDateTime, money, num, STATUS_LABEL, DELIVERY_LABEL, isServiceItem } from '../lib.js';
+import { fmtMobile, fmtDate, fmtDateTime, money, num, STATUS_LABEL, DELIVERY_LABEL, isServiceItem, SERVICE_KIND_LABEL, isFreeService, bikeLabel } from '../lib.js';
+
+const fmtReg = (r) => bikeLabel({ reg_no: r });
 
 const PAGE_CSS = {
   a4: '@page { size: A4; margin: 12mm; }',
@@ -83,6 +85,8 @@ function A4({ j, shop, inv, doc, t, showPrices, title }) {
         <div>
           <b>Motorbike</b><br />{fmtReg(j.bike.reg_no)}<br />{j.bike.model} {j.bike.year || ''}
           {j.odometer != null && <><br />Odometer: {j.odometer.toLocaleString()} km</>}
+          {(j.bike.engine_no || j.bike.chassis_no) && <><br /><small>Engine {j.bike.engine_no || '—'} · Chassis {j.bike.chassis_no || '—'}</small></>}
+          {j.service_kind && <><br /><b>{SERVICE_KIND_LABEL[j.service_kind]}</b></>}
         </div>
         <div>
           <b>Status</b><br />Job: {STATUS_LABEL[j.status]}<br />Delivery: {DELIVERY_LABEL[j.delivery_status]}
@@ -132,6 +136,7 @@ function A4({ j, shop, inv, doc, t, showPrices, title }) {
           {doc === 'invoice' && inv?.paid_amount !== undefined && <><span>Paid</span><span>{money(inv.paid_amount)}</span><b>Balance</b><b>{money(inv.total - inv.paid_amount)}</b></>}
         </div>
       )}
+      {doc === 'jobcard' && <PayNote j={j} />}
       {doc === 'estimate' && <p className="small center">This is an estimate. The final amount may change if more work is needed.</p>}
       {j.bike.next_service_due_date && doc === 'invoice' && <p className="center">Next service due: <b>{fmtDate(j.bike.next_service_due_date)}</b></p>}
 
@@ -161,6 +166,8 @@ function Thermal({ j, shop, inv, doc, t, showPrices, title }) {
       <div className="r-row"><span>Customer</span><span>{j.customer.name}</span></div>
       <div className="r-row"><span>Mobile</span><span>{fmtMobile(j.customer.mobile)}</span></div>
       {j.odometer != null && <div className="r-row"><span>Odometer</span><span>{j.odometer.toLocaleString()} km</span></div>}
+      {j.service_kind && <div className="r-row"><span>Service</span><span><b>{SERVICE_KIND_LABEL[j.service_kind]}</b></span></div>}
+      {isFreeService(j.service_kind) && <div className="r-row"><span>Chassis</span><span>{j.bike.chassis_no}</span></div>}
       {doc === 'jobcard' && <>
         <div className="r-row"><span>Mechanic</span><span>{j.mechanic_name || '-'}</span></div>
         {j.promised_at && <div className="r-row"><span>Promised</span><span>{fmtDateTime(j.promised_at)}</span></div>}
@@ -190,6 +197,7 @@ function Thermal({ j, shop, inv, doc, t, showPrices, title }) {
       </>}
       <div className="r-rule" />
       {doc === 'invoice' && j.bike.next_service_due_date && <div className="r-center">Next service: {fmtDate(j.bike.next_service_due_date)}</div>}
+      {doc === 'jobcard' && <PayNote j={j} thermal />}
       {doc === 'jobcard' && <div className="r-sign">Customer signature<br /><br />.............................</div>}
       <div className="r-center r-foot">{shop.footer}</div>
     </div>
@@ -277,4 +285,22 @@ function DotMatrix({ j, shop, inv, doc, t, showPrices, title }) {
   L.push('');
   if (shop.footer) L.push(center(shop.footer.slice(0, W)));
   return <pre className="dotmatrix">{L.join('\n')}</pre>;
+}
+
+/** On the job card: tells the customer to pay at the cashier (or shows it is paid) */
+function PayNote({ j, thermal }) {
+  if (!j.pay_upfront || !j.totals) return null;
+  const due = j.payment_state === 'DUE';
+  if (thermal) {
+    return (
+      <div className="r-paynote">
+        {due ? <>PAY AT CASHIER<br /><span className="r-big">LKR {num(j.totals.balance)}</span></> : <>** PAID **</>}
+      </div>
+    );
+  }
+  return (
+    <div className="paper-paynote">
+      {due ? <>Please pay <b>{money(j.totals.balance)}</b> at the cashier. Work starts once the receipt is with the bike.</> : <b>PAID – thank you.</b>}
+    </div>
+  );
 }

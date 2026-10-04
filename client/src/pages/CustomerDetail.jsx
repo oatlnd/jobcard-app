@@ -10,10 +10,11 @@ export default function CustomerDetail() {
   const c = useLoad(() => get(`/customers/${id}`), [id]);
   const [edit, setEdit] = useState(false);
   const [addBike, setAddBike] = useState(false);
+  const [editBike, setEditBike] = useState(null);
+  const { can } = useAuth();
   if (c.loading && !c.data) return <Loading />;
   if (c.error && !c.data) return <div className="page"><ErrorBox error={c.error} /></div>;
   const d = c.data;
-  const { can } = useAuth();
   const staff = can('customers.manage');
 
   return (
@@ -33,14 +34,16 @@ export default function CustomerDetail() {
         <h2 className="card-title">Bikes</h2>
         <div className="table-wrap">
           <table className="table compact">
-            <thead><tr><th>Bike</th><th>Model</th><th>Year</th><th>Last service</th><th>Next due</th><th>Odometer</th></tr></thead>
+            <thead><tr><th>Bike</th><th>Model</th><th>Year</th><th>Engine / chassis</th><th>Last service</th><th>Next due</th><th>Odometer</th>{staff && <th />}</tr></thead>
             <tbody>
               {d.bikes.map((b) => (
                 <tr key={b.id}>
-                  <td><strong>{fmtReg(b.reg_no)}</strong></td><td>{b.model}</td><td>{b.year || '—'}</td>
+                  <td><strong>{fmtReg(b.reg_no)}</strong>{b.sale_date && <div className="small muted">Sold {fmtDate(b.sale_date)}</div>}</td><td>{b.model}</td><td>{b.year || '—'}</td>
+                  <td className="small mono">{b.engine_no || '—'}<br />{b.chassis_no || '—'}</td>
                   <td>{fmtDate(b.last_service_date)}</td>
                   <td className={b.next_service_due_date && new Date(b.next_service_due_date) < new Date() ? 'late-text' : ''}>{fmtDate(b.next_service_due_date)}</td>
                   <td>{b.last_odometer != null ? `${b.last_odometer.toLocaleString()} km` : '—'}</td>
+                  {staff && <td><button className="btn small ghost" onClick={() => setEditBike(b)}>Edit</button></td>}
                 </tr>
               ))}
             </tbody>
@@ -70,6 +73,7 @@ export default function CustomerDetail() {
 
       {edit && <EditCustomer d={d} onClose={() => setEdit(false)} onSaved={() => { setEdit(false); c.reload({ quiet: true }); }} />}
       {addBike && <AddBike customerId={d.id} onClose={() => setAddBike(false)} onSaved={() => { setAddBike(false); c.reload({ quiet: true }); }} />}
+      {editBike && <EditBike bike={editBike} onClose={() => setEditBike(null)} onSaved={() => { setEditBike(null); c.reload({ quiet: true }); }} />}
     </div>
   );
 }
@@ -91,6 +95,36 @@ function EditCustomer({ d, onClose, onSaved }) {
           <select value={f.preferred_lang} onChange={s('preferred_lang')}><option value="ta">Tamil</option><option value="en">English</option></select>
         </Field>
         <Field label="Notes" wide><textarea rows="2" value={f.notes} onChange={s('notes')} /></Field>
+      </div>
+    </Modal>
+  );
+}
+
+function EditBike({ bike, onClose, onSaved }) {
+  const unreg = bike.reg_no.startsWith('UNREG');
+  const [f, setF] = useState({
+    reg_no: unreg ? '' : bike.reg_no, model: bike.model, year: bike.year || '', engine_no: bike.engine_no || '',
+    chassis_no: bike.chassis_no || '', sale_date: bike.sale_date ? String(bike.sale_date).slice(0, 10) : '',
+  });
+  const { busy, error, run } = useAction();
+  const s = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  return (
+    <Modal title="Edit bike" onClose={onClose}
+      footer={<><button className="btn ghost" onClick={onClose}>Cancel</button>
+        <button className="btn primary" disabled={busy} onClick={() => run(async () => {
+          await patch(`/bikes/${bike.id}`, { ...f, reg_no: f.reg_no || null, year: f.year ? Number(f.year) : null, sale_date: f.sale_date || null });
+          onSaved();
+        })}>Save</button></>}>
+      <ErrorBox error={error} />
+      <div className="grid2">
+        <Field label="Bike number" hint={unreg ? 'Not registered yet – enter the number plate when it arrives' : ''}>
+          <input value={f.reg_no} onChange={(e) => setF({ ...f, reg_no: e.target.value.toUpperCase() })} />
+        </Field>
+        <Field label="Model"><input value={f.model} onChange={s('model')} /></Field>
+        <Field label="Year"><input type="number" value={f.year} onChange={s('year')} /></Field>
+        <Field label="Date of sale"><input type="date" value={f.sale_date} onChange={s('sale_date')} /></Field>
+        <Field label="Engine no."><input value={f.engine_no} onChange={s('engine_no')} /></Field>
+        <Field label="Chassis no."><input value={f.chassis_no} onChange={s('chassis_no')} /></Field>
       </div>
     </Modal>
   );

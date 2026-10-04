@@ -4,7 +4,7 @@ import { get } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { useLive } from '../socket.js';
 import { DeliveryBadge, ErrorBox, Loading, useLoad } from '../components/ui.jsx';
-import { BOARD_COLUMNS, STATUS_LABEL, fmtReg, money, timeAgo, fmtDateTime } from '../lib.js';
+import { BOARD_COLUMNS, STATUS_LABEL, money, timeAgo, fmtDateTime, bikeLabel, SERVICE_KIND_SHORT, PAY_STATE_LABEL } from '../lib.js';
 
 const COLS = [...BOARD_COLUMNS, 'DELIVERED_TODAY'];
 const COL_LABEL = { ...STATUS_LABEL, COMPLETED: 'Completed – to deliver', DELIVERED_TODAY: 'Delivered today' };
@@ -38,6 +38,7 @@ export default function Board() {
         </div>
         <div className="row">
           {can('jobs.status') && <label className="toggle"><input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} /> My jobs only</label>}
+          {can('payments.record') && <Link className="btn" to="/cashier">💵 Cashier</Link>}
           {can('jobs.create') && <Link className="btn primary" to="/jobs/new">+ New job card</Link>}
         </div>
       </div>
@@ -78,9 +79,15 @@ function JobTile({ job, showMoney }) {
   return (
     <Link to={`/jobs/${job.id}`} className={`tile${late ? ' late' : ''}`}>
       <div className="tile-top">
-        <strong className="reg">{fmtReg(job.reg_no)}</strong>
+        <strong className="reg">{bikeLabel(job)}</strong>
         <span className="muted small">{job.job_no}</span>
       </div>
+      {(job.service_kind || job.pay_upfront) && (
+        <div className="tile-tags">
+          {job.service_kind && <span className={`kind-tag k-${job.service_kind}`}>{SERVICE_KIND_SHORT[job.service_kind]}</span>}
+          {job.pay_upfront && <span className={`badge pay-${job.payment_state}`}>{job.payment_state === 'DUE' && job.status === 'CHECKED_IN' ? 'Waiting for cashier' : PAY_STATE_LABEL[job.payment_state]}</span>}
+        </div>
+      )}
       <div className="tile-model">{job.model}{job.year ? ` · ${job.year}` : ''}</div>
       <div className="small muted ellipsis">{job.customer_name}</div>
       {job.services && <div className="small ellipsis tile-complaint">{job.services}</div>}

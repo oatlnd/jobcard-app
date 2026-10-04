@@ -56,7 +56,7 @@ export async function loadJob(jobId, db = { query }) {
   );
   const job = rows[0];
   if (!job) throw new HttpError(404, 'Job card not found');
-  const [items, history, invoice, notes, settings] = await Promise.all([
+  const [items, history, invoice, notes, settings, payments] = await Promise.all([
     db.query(
       `SELECT ji.*, p.part_no, p.unit FROM job_items ji LEFT JOIN parts p ON p.id = ji.part_id
        WHERE job_card_id = $1 ORDER BY CASE WHEN ji.item_type IN ('service','custom_service') THEN 0 ELSE 1 END, ji.id`,
@@ -70,26 +70,41 @@ export async function loadJob(jobId, db = { query }) {
     db.query('SELECT * FROM invoices WHERE job_card_id = $1', [jobId]),
     db.query('SELECT id, channel, template, status, body, attempts, last_error, sent_at, created_at FROM notifications WHERE job_card_id = $1 ORDER BY id DESC', [jobId]),
     db.query(`SELECT value FROM settings WHERE key = 'billing'`),
+    db.query(
+      `SELECT p.*, u.name AS received_by_name FROM job_payments p LEFT JOIN users u ON u.id = p.received_by
+       WHERE p.job_card_id = $1 ORDER BY p.id`,
+      [jobId],
+    ),
   ]);
   const taxRate = invoice.rows[0]?.tax_rate ?? settings.rows[0]?.value?.tax_rate ?? 0;
+  const totals = computeTotals(items.rows, job.discount, taxRate);
+  const paid = round2(payments.rows.reduce((s, p) => s + (p.kind === 'REFUND' ? -1 : 1) * Number(p.amount), 0));
+  const due = job.status === 'CANCELLED' ? 0 : invoice.rows[0] ? Number(invoice.rows[0].total) : totals.total;
+  const balance = round2(due - paid);
   return {
     ...job,
     items: items.rows,
     history: history.rows,
     invoice: invoice.rows[0] || null,
     notifications: notes.rows,
-    totals: computeTotals(items.rows, job.discount, taxRate),
+    payments: payments.rows,
+    totals: { ...totals, paid, balance },
+    // 'DUE' | 'REFUND' | 'PAID' – also shown to people who can't see amounts (e.g. mechanics)
+    payment_state: balance > 0.005 ? 'DUE' : balance < -0.005 ? 'REFUND' : 'PAID',
   };
 }
 
 /** Remove money fields for users who may not see prices. */
+export const canSeeMoney = (user) => hasPerm(user, 'jobs.pricing') || hasPerm(user, 'payments.record');
+
 export function sanitizeJob(job, user) {
-  if (hasPerm(user, 'jobs.pricing')) return job;
+  if (canSeeMoney(user)) return job;
   return {
     ...job,
     discount: undefined,
     totals: undefined,
     invoice: job.invoice ? { id: job.invoice.id, invoice_no: job.invoice.invoice_no, status: job.invoice.status } : null,
+    payments: hasPerm(user, 'payments.record') ? job.payments : [],
     items: job.items.map(({ unit_price, line_total, unit_cost, ...rest }) => rest),
     notifications: hasPerm(user, 'messages.view') ? job.notifications : [],
   };

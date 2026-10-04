@@ -13,7 +13,7 @@ r.get('/summary', async (req, res) => {
              (SELECT count(*) FROM job_cards WHERE created_at::date = CURRENT_DATE)::int AS checked_in,
              (SELECT count(*) FROM job_cards WHERE delivered_at::date = CURRENT_DATE)::int AS delivered,
              (SELECT COALESCE(sum(total),0) FROM invoices WHERE issued_at::date = CURRENT_DATE) AS invoiced,
-             (SELECT COALESCE(sum(paid_amount),0) FROM invoices WHERE issued_at::date = CURRENT_DATE) AS collected,
+             (SELECT COALESCE(sum(CASE WHEN kind = 'REFUND' THEN -amount ELSE amount END),0) FROM job_payments WHERE received_at::date = CURRENT_DATE) AS collected,
              (SELECT COALESCE(sum(amount),0) FROM expenses WHERE expense_date = CURRENT_DATE) AS expenses`),
     query(`SELECT count(*)::int AS jobs, COALESCE(sum(total),0) AS invoiced, COALESCE(sum(total - paid_amount),0) AS outstanding,
              (SELECT COALESCE(sum(amount),0) FROM expenses WHERE date_trunc('month', expense_date) = date_trunc('month', now())) AS expenses

@@ -22,6 +22,7 @@ const users = [
   ['Suresh', 'suresh', 'mech123', 'Mechanic'],
   ['Store Keeper', 'store', 'store123', 'Store Keeper'],
   ['Accounts', 'accounts', 'accounts123', 'Accountant'],
+  ['Cashier', 'cashier', 'cashier123', 'Cashier'],
 ];
 const uid = {};
 for (const [name, u, p, role] of users) {
@@ -75,6 +76,15 @@ const bikes = [];
 for (const [name, mobile, suburb, lang, reg, model, year, odo] of customers) {
   const c = (await q('INSERT INTO customers (name, mobile, suburb, preferred_lang) VALUES ($1,$2,$3,$4) RETURNING id', [name, mobile, suburb, lang])).rows[0];
   bikes.push((await q('INSERT INTO bikes (customer_id, reg_no, model, year, last_odometer) VALUES ($1,$2,$3,$4,$5) RETURNING id, customer_id', [c.id, reg, model, year, odo])).rows[0]);
+}
+// A brand-new bike (no number plate yet) – ready to try a free service
+{
+  const c = (await q(`INSERT INTO customers (name, mobile, suburb, preferred_lang) VALUES ('Kavin Sivakumar', '94761239876', 'Kopay', 'ta') RETURNING id`)).rows[0];
+  await q(
+    `INSERT INTO bikes (customer_id, reg_no, model, year, engine_no, chassis_no, sale_date, last_odometer)
+     VALUES ($1, 'UNREG63E0012345', 'Dio', $2, 'JF63E-7012345', 'ME4JF63E0012345', CURRENT_DATE - 25, 0)`,
+    [c.id, new Date().getFullYear()],
+  );
 }
 await q(`UPDATE bikes SET last_service_date = CURRENT_DATE - 88, next_service_due_date = CURRENT_DATE + 2 WHERE id = $1`, [bikes[3].id]);
 
@@ -155,6 +165,6 @@ await q(`INSERT INTO expenses (expense_no, expense_date, expense_type, category,
   ('EXP' || to_char(now(), 'YY') || '-' || lpad(nextval('expense_no_seq')::text, 5, '0'), CURRENT_DATE - 1, 'EXTERNAL', 'Outside Work (Lathe / Painting)', 'Brake drum skimming', 1500, 'Cash', 'Siva Lathe Works', $1)`, [uid.advisor]);
 
 console.log(`Seeded demo data.
-  Logins: admin/admin123, advisor/advisor123, kumar/mech123, store/store123, accounts/accounts123
+  Logins: admin/admin123, advisor/advisor123, kumar/mech123, store/store123, accounts/accounts123, cashier/cashier123
   Change these passwords before going live.`);
 await pool.end();

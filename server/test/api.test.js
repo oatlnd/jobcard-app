@@ -7,7 +7,7 @@ const API = (process.env.API || 'http://localhost:3000') + '/api';
 const tokens = {};
 async function call(user, method, path, body) {
   if (!tokens[user]) {
-    const pw = { admin: 'admin123', advisor: 'advisor123', kumar: 'mech123', store: 'store123', accounts: 'accounts123' }[user];
+    const pw = { admin: 'admin123', advisor: 'advisor123', kumar: 'mech123', store: 'store123', accounts: 'accounts123', cashier: 'cashier123' }[user];
     const r = await fetch(`${API}/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: user, password: pw }) });
     tokens[user] = (await r.json()).token;
   }
@@ -167,3 +167,103 @@ test('payroll: mid-month advance then month-end with EPF/ETF', async () => {
   assert.equal(att.status, 400);
   assert.equal((await call('advisor', 'GET', '/payroll/runs')).status, 403);
 });
+
+test('walk-in free service: advisor lodges, cashier takes payment, work starts, balance before hand-over', async () => {
+  const parts = ok(await call('advisor', 'GET', '/parts'));
+  const oil = parts.find((p) => p.part_no === 'OIL-10W30-1L');
+  // brand-new bike, no number plate yet: engine + chassis are required for a free service
+  const missing = await call('advisor', 'POST', '/jobs', {
+    customer: { name: 'Walk In', mobile: '0773334444' }, bike: { model: 'Dio', chassis_no: 'ME4JF99E0000777' },
+    odometer: 640, service_kind: 'FREE_1', pay_upfront: true,
+  });
+  assert.equal(missing.status, 400);
+  assert.match(missing.data.error, /engine number/);
+  const job = ok(await call('advisor', 'POST', '/jobs', {
+    customer: { name: 'Walk In', mobile: '0773334444' },
+    bike: { model: 'Dio', chassis_no: 'ME4JF99E0000777', engine_no: 'JF99E-0000777', sale_date: '2026-09-01' },
+    odometer: 640, service_kind: 'FREE_1', pay_upfront: true,
+    items: [{ item_type: 'part', part_id: oil.id, qty: 1 }],
+  }));
+  assert.equal(job.service_kind, 'FREE_1');
+  assert.match(job.bike.reg_no, /^UNREG/);
+  assert.equal(job.payment_state, 'DUE');
+  assert.equal(job.totals.balance, oil.unit_price);
+  // bike can be found by chassis number
+  const found = ok(await fetchLookup('ME4JF99E0000777'));
+  assert.equal(found.id, job.bike.id);
+  assert.equal(found.free_services.length, 1);
+
+  // mechanic can't start before the receipt
+  const early = await call('kumar', 'POST', `/jobs/${job.id}/status`, { status: 'IN_PROGRESS' });
+  assert.equal(early.status, 400);
+  assert.match(early.data.error, /cashier/);
+  // mechanic sees the payment state but no amounts
+  const mj = ok(await call('kumar', 'GET', `/jobs/${job.id}`));
+  assert.equal(mj.payment_state, 'DUE');
+  assert.equal(mj.totals, undefined);
+
+  // cashier queue shows it; overpaying is refused; cash change is worked out
+  const queue = ok(await call('cashier', 'GET', '/cashier/queue'));
+  assert.ok(queue.find((q) => q.id === job.id && q.balance === oil.unit_price));
+  const over = await call('cashier', 'POST', `/cashier/jobs/${job.id}/payments`, { amount: oil.unit_price + 1, method: 'Cash' });
+  assert.equal(over.status, 400);
+  const short = await call('cashier', 'POST', `/cashier/jobs/${job.id}/payments`, { amount: oil.unit_price, method: 'Cash', cash_given: 100 });
+  assert.equal(short.status, 400);
+  const paid = ok(await call('cashier', 'POST', `/cashier/jobs/${job.id}/payments`, { amount: oil.unit_price, method: 'Cash', cash_given: 5000 }));
+  assert.equal(Number(paid.payment.change_given), 5000 - oil.unit_price);
+  assert.match(paid.payment.receipt_no, /^RC\d{2}-\d{5}$/);
+  assert.equal(paid.job.payment_state, 'PAID');
+  const receipt = ok(await call('cashier', 'GET', `/cashier/payments/${paid.payment.id}`));
+  assert.equal(receipt.balance_after, 0);
+  // cashier can't edit the job card
+  assert.equal((await call('cashier', 'PATCH', `/jobs/${job.id}`, { discount: 100 })).status, 403);
+
+  // work starts; mechanic finds an extra part -> balance due again
+  ok(await call('kumar', 'POST', `/jobs/${job.id}/status`, { status: 'IN_PROGRESS' }));
+  const extra = ok(await call('advisor', 'POST', `/jobs/${job.id}/items`, { item_type: 'custom_part', description: 'Brake shoe', unit_price: 1200 }));
+  assert.equal(extra.totals.balance, 1200);
+  ok(await call('kumar', 'POST', `/jobs/${job.id}/status`, { status: 'QA_CHECK' }));
+  ok(await call('advisor', 'POST', `/jobs/${job.id}/status`, { status: 'COMPLETED' }));
+  const blocked = await call('cashier', 'POST', `/jobs/${job.id}/delivery`, { delivery_status: 'DELIVERED' });
+  assert.equal(blocked.status, 400);
+  assert.match(blocked.data.error, /balance/);
+  ok(await call('cashier', 'POST', `/cashier/jobs/${job.id}/payments`, { amount: 1200, method: 'Card', reference: 'slip 991' }));
+  const done = ok(await call('cashier', 'POST', `/jobs/${job.id}/delivery`, { delivery_status: 'DELIVERED' }));
+  assert.equal(done.delivery_status, 'DELIVERED');
+  assert.equal(done.invoice.status, 'PAID');
+  assert.equal(Number(done.invoice.paid_amount), oil.unit_price + 1200);
+
+  // free service 1 can't be used again on this bike
+  const again = await call('advisor', 'POST', '/jobs', { bike_id: job.bike.id, odometer: 3000, service_kind: 'FREE_1', pay_upfront: true });
+  assert.equal(again.status, 409);
+
+  // today's takings
+  const today = ok(await call('cashier', 'GET', '/cashier/today'));
+  assert.ok(today.by_method.Cash >= oil.unit_price && today.by_method.Card >= 1200);
+  // Honda claim list
+  const claims = ok(await call('accounts', 'GET', '/reports/free-services'));
+  const row = claims.rows.find((x) => x.id === job.id);
+  assert.equal(row.engine_no, 'JF99E-0000777');
+  assert.equal(row.chassis_no, 'ME4JF99E0000777');
+});
+
+test('refund when items are removed after payment', async () => {
+  const job = ok(await call('advisor', 'POST', '/jobs', {
+    customer: { name: 'Refund Test', mobile: '0775556666' }, bike: { reg_no: 'NP ZZZ-0099', model: 'Dio' },
+    service_kind: 'PAID', pay_upfront: true,
+    items: [{ item_type: 'custom_service', description: 'Service', unit_price: 3000 }, { item_type: 'custom_part', description: 'Oil', unit_price: 2000 }],
+  }));
+  ok(await call('cashier', 'POST', `/cashier/jobs/${job.id}/payments`, { amount: 5000, method: 'Bank Transfer', reference: 'BOC 123' }));
+  const oilLine = job.items.find((i) => i.description === 'Oil');
+  const after = ok(await call('advisor', 'DELETE', `/jobs/${job.id}/items/${oilLine.id}`));
+  assert.equal(after.payment_state, 'REFUND');
+  assert.equal(after.totals.balance, -2000);
+  const tooMuch = await call('cashier', 'POST', `/cashier/jobs/${job.id}/payments`, { kind: 'REFUND', amount: 2500, method: 'Cash' });
+  assert.equal(tooMuch.status, 400);
+  const r = ok(await call('cashier', 'POST', `/cashier/jobs/${job.id}/payments`, { kind: 'REFUND', amount: 2000, method: 'Cash' }));
+  assert.equal(r.job.payment_state, 'PAID');
+});
+
+async function fetchLookup(reg) {
+  return call('advisor', 'GET', `/bikes/lookup?reg=${encodeURIComponent(reg)}`);
+}

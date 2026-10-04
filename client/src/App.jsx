@@ -31,6 +31,9 @@ import Advances from './pages/Advances.jsx';
 import Payroll, { PayrollRun, PayslipPrint } from './pages/Payroll.jsx';
 import PublicStatus from './pages/PublicStatus.jsx';
 import EnvBanner from './components/EnvBanner.jsx';
+import Cashier from './pages/Cashier.jsx';
+import ReceiptPrint from './pages/ReceiptPrint.jsx';
+import FreeServiceReport from './pages/FreeServiceReport.jsx';
 
 function RequireAuth({ children, perms }) {
   const { user, ready, can } = useAuth();
@@ -60,6 +63,7 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/status" element={<PublicStatus />} />
       <Route path="/print/job/:id" element={P(['jobs.print'], <JobPrint />)} />
+      <Route path="/print/receipt/:id" element={P(['payments.record', 'jobs.print'], <ReceiptPrint />)} />
       <Route path="/print/po/:id" element={P(['purchasing.view'], <DocPrint kind="po" />)} />
       <Route path="/print/grn/:id" element={P(['purchasing.view', 'grn.manage'], <DocPrint kind="grn" />)} />
       <Route path="/print/payslips/:id" element={P(['payroll.view'], <PayslipPrint />)} />
@@ -72,6 +76,8 @@ export default function App() {
         <Route path="customers" element={P(['customers.view'], <Customers />)} />
         <Route path="customers/:id" element={P(['customers.view'], <CustomerDetail />)} />
         <Route path="invoices" element={P(['invoices.view'], <Invoices />)} />
+        <Route path="cashier" element={P(['payments.record'], <Cashier />)} />
+        <Route path="reports/free-services" element={P(['invoices.view', 'dashboard.finance'], <FreeServiceReport />)} />
         <Route path="reminders" element={P(['messages.view'], <Reminders />)} />
         <Route path="parts" element={P(['parts.view'], <Parts />)} />
         <Route path="suppliers" element={P(['purchasing.view'], <Suppliers />)} />
@@ -104,6 +110,7 @@ const FIRST_PAGES = [['parts.view', '/parts'], ['purchasing.view', '/purchase-or
   ['employees.view', '/employees'], ['attendance.manage', '/attendance'], ['users.manage', '/users'], ['settings.manage', '/settings']];
 function Home() {
   const { can } = useAuth();
+  if (can('payments.record') && !can('jobs.create') && !can('jobs.status')) return <Navigate to="/cashier" replace />; // cashiers start at the counter
   if (can('jobs.view')) return <Board />;
   const hit = FIRST_PAGES.find(([p]) => can(p));
   return hit ? <Navigate to={hit[1]} replace /> : <NoAccess />;

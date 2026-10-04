@@ -82,7 +82,7 @@ SQL
   pm2 startOrReload deploy/ecosystem.staging.config.cjs --update-env >/dev/null
   pm2 save >/dev/null
   echo "Test site data refreshed."
-  [ "$DEMO" = "1" ] && echo "Demo logins: admin/admin123, advisor/advisor123, kumar/mech123, store/store123, accounts/accounts123"
+  [ "$DEMO" = "1" ] && echo "Demo logins: admin/admin123, advisor/advisor123, kumar/mech123, store/store123, accounts/accounts123, cashier/cashier123"
   [ "$DEMO" = "0" ] && echo "Logins are the same as the live site. Customer mobiles are now fake: 9470 + customer number."
   return 0
 }

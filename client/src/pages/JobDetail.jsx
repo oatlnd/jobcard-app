@@ -8,9 +8,11 @@ import JobItems from '../components/JobItems.jsx';
 import Attachments from '../components/Attachments.jsx';
 import PrintMenu from '../components/PrintMenu.jsx';
 import { ServicePicker, PartPicker, CustomPicker } from '../components/ItemPicker.jsx';
+import PaymentModal from '../components/PaymentModal.jsx';
 import {
   STATUS_LABEL, DELIVERY_LABEL, DELIVERY_ACTION, allowedStatuses, allowedDelivery, actionLabel,
-  fmtReg, fmtMobile, fmtDateTime, fmtDate, money, isoToLocal, localToIso,
+  fmtMobile, fmtDateTime, fmtDate, money, isoToLocal, localToIso,
+  SERVICE_KIND_LABEL, SERVICE_KIND_SHORT, PAY_STATE_LABEL, isFreeService, bikeLabel,
 } from '../lib.js';
 
 export default function JobDetail() {
@@ -20,6 +22,7 @@ export default function JobDetail() {
   const act = useAction();
   const [statusModal, setStatusModal] = useState(null);
   const [deliveryModal, setDeliveryModal] = useState(null);
+  const [paying, setPaying] = useState(false);
 
   useLive('job:changed', (e) => { if (String(e.id) === String(id)) job.reload({ quiet: true }); });
 
@@ -27,8 +30,12 @@ export default function JobDetail() {
   if (job.error && !job.data) return <div className="page"><ErrorBox error={job.error} /></div>;
   const j = job.data;
   const canPrice = can('jobs.pricing');
+  const showMoney = canPrice || can('payments.record');
   const closed = j.status === 'CANCELLED' || j.delivery_status === 'DELIVERED';
-  const nextStatuses = allowedStatuses(j, can);
+  // Pay-first jobs: work can't start until the cashier has taken the payment
+  const waitingPayFirst = j.pay_upfront && j.payment_state === 'DUE' && j.status === 'CHECKED_IN';
+  const nextStatuses = allowedStatuses(j, can).filter((s) => !waitingPayFirst || s === 'CANCELLED');
+  const waitingPay = waitingPayFirst;
   const nextDelivery = allowedDelivery(j, can);
 
   const doAction = (fn) => act.run(async () => { const r = await fn(); if (r?.job_no && r?.items) job.setData(r); return r ?? true; });
@@ -43,7 +50,11 @@ export default function JobDetail() {
       <div className="page-head">
         <div>
           <div className="crumbs"><Link to="/jobs">Job cards</Link> / {j.job_no}</div>
-          <h1 className="row wrap">{fmtReg(j.bike.reg_no)} <StatusBadge status={j.status} /> <DeliveryBadge status={j.delivery_status} /></h1>
+          <h1 className="row wrap">
+            {bikeLabel(j.bike)} <StatusBadge status={j.status} /> <DeliveryBadge status={j.delivery_status} />
+            {j.service_kind && <span className={`kind-tag k-${j.service_kind}`}>{SERVICE_KIND_SHORT[j.service_kind]}</span>}
+            {(j.pay_upfront || j.payments?.length > 0) && j.status !== 'CANCELLED' && <span className={`badge pay-${j.payment_state}`}>{PAY_STATE_LABEL[j.payment_state]}</span>}
+          </h1>
           <p className="muted">
             {j.job_no} · {j.bike.model}{j.bike.year ? ` · ${j.bike.year}` : ''} · Opened {fmtDateTime(j.created_at)}
             {j.delivery_method === 'HOME_DELIVERY' && ' · Home delivery'}
@@ -53,6 +64,19 @@ export default function JobDetail() {
       </div>
 
       <ErrorBox error={act.error} />
+
+      {waitingPay && (
+        <div className="alert warn pay-banner">
+          <div>
+            <strong>Waiting for payment at the cashier{showMoney && j.totals ? ` – ${money(j.totals.balance)}` : ''}.</strong>
+            <div className="small">Work starts once the customer has paid and the receipt is with the bike.</div>
+          </div>
+          <div className="row">
+            {can('jobs.print') && <a className="btn small" href={`/print/job/${j.id}?doc=jobcard&format=thermal&auto=1`} target="_blank" rel="noreferrer">🖨 Job card</a>}
+            {can('payments.record') && <button className="btn small primary" onClick={() => setPaying(true)}>Take payment</button>}
+          </div>
+        </div>
+      )}
 
       {(nextStatuses.length > 0 || nextDelivery.length > 0) && (
         <div className="status-actions">
@@ -75,8 +99,8 @@ export default function JobDetail() {
         <div className="stack">
           <CustomerCard j={j} />
           <DetailsCard j={j} closed={closed} onSave={(body) => doAction(() => patch(`/jobs/${id}`, body))} busy={act.busy} />
-          <ItemsCard j={j} canPrice={canPrice} canEdit={can('jobs.items') && !closed && !j.invoice} doAction={doAction} busy={act.busy} />
-          {can('invoices.view', 'invoices.manage', 'payments.record') && canPrice && <InvoiceCard j={j} doAction={doAction} busy={act.busy} reload={() => job.reload({ quiet: true })} />}
+          <ItemsCard j={j} canPrice={canPrice} showMoney={showMoney} canEdit={can('jobs.items') && !closed && !j.invoice} doAction={doAction} busy={act.busy} />
+          {showMoney && can('invoices.view', 'invoices.manage', 'payments.record') && <PaymentCard j={j} doAction={doAction} busy={act.busy} onPay={() => setPaying(true)} reload={() => job.reload({ quiet: true })} />}
         </div>
         <div className="stack">
           <Timeline j={j} />
@@ -90,6 +114,10 @@ export default function JobDetail() {
 
       {statusModal && (
         <StatusNoteModal status={statusModal} busy={act.busy} onClose={() => setStatusModal(null)} onConfirm={(note) => changeStatus(statusModal, note)} />
+      )}
+      {paying && j.totals && (
+        <PaymentModal job={{ id: j.id, job_no: j.job_no, label: bikeLabel(j.bike), customer_name: j.customer.name, balance: j.totals.balance, service_kind: j.service_kind }}
+          onClose={() => setPaying(false)} onDone={(r) => job.setData(r.job)} />
       )}
       {deliveryModal && (
         <DeliveryModal j={j} status={deliveryModal} busy={act.busy} onClose={() => setDeliveryModal(null)}
@@ -116,14 +144,18 @@ function StatusNoteModal({ status, busy, onClose, onConfirm }) {
 function DeliveryModal({ j, status, busy, onClose, onConfirm }) {
   const [deliveredTo, setDeliveredTo] = useState(j.customer.name);
   const [note, setNote] = useState('');
-  const unpaid = j.invoice && j.invoice.status !== 'PAID';
+  const unpaid = j.payment_state === 'DUE';
+  const mustPay = status === 'DELIVERED' && j.pay_upfront && unpaid;
+  const needInvoice = status === 'DELIVERED' && !j.invoice && !j.pay_upfront;
   return (
     <Modal title={DELIVERY_ACTION[status]} onClose={onClose}
       footer={<><button className="btn ghost" onClick={onClose}>Back</button>
-        <button className="btn primary" disabled={busy || (status === 'DELIVERED' && !j.invoice)}
+        <button className="btn primary" disabled={busy || needInvoice || mustPay}
           onClick={() => onConfirm({ note, delivered_to: status === 'DELIVERED' ? deliveredTo : undefined })}>Confirm</button></>}>
-      {status === 'DELIVERED' && !j.invoice && <div className="alert warn">Create the invoice before handing over the bike.</div>}
-      {status === 'DELIVERED' && unpaid && <div className="alert warn">The invoice is not fully paid (balance {money(j.invoice.total - j.invoice.paid_amount)}).</div>}
+      {needInvoice && <div className="alert warn">Create the invoice before handing over the bike.</div>}
+      {mustPay && <div className="alert warn">Collect the balance{j.totals ? ` of ${money(j.totals.balance)}` : ''} at the cashier before handing over the bike.</div>}
+      {status === 'DELIVERED' && unpaid && !mustPay && j.totals && <div className="alert warn">Not fully paid (balance {money(j.totals.balance)}).</div>}
+      {status === 'DELIVERED' && j.payment_state === 'REFUND' && j.totals && <div className="alert info">The customer is owed a refund of {money(-j.totals.balance)} – give it at the cashier.</div>}
       {status === 'DELIVERED' && <Field label="Handed over to"><input autoFocus value={deliveredTo} onChange={(e) => setDeliveredTo(e.target.value)} /></Field>}
       {status === 'OUT_FOR_DELIVERY' && j.delivery_address && <p>Deliver to: <strong>{j.delivery_address}</strong></p>}
       <Field label={status === 'OUT_FOR_DELIVERY' ? 'Sent with (driver / note)' : 'Note'}><input value={note} onChange={(e) => setNote(e.target.value)} /></Field>
@@ -169,6 +201,7 @@ function DetailsCard({ j, closed, onSave, busy }) {
     setF({
       complaint: j.complaint || '', diagnosis: j.diagnosis || '', odometer: j.odometer ?? '', fuel_level: j.fuel_level || '',
       mechanic_id: j.mechanic_id || '', promised_at: isoToLocal(j.promised_at), delivery_method: j.delivery_method, delivery_address: j.delivery_address || '',
+      service_kind: j.service_kind || '', pay_upfront: !!j.pay_upfront,
     });
   }, [j]);
 
@@ -176,7 +209,8 @@ function DetailsCard({ j, closed, onSave, busy }) {
     const body = full
       ? { complaint: f.complaint, diagnosis: f.diagnosis, odometer: f.odometer === '' ? null : Number(f.odometer), fuel_level: f.fuel_level,
           mechanic_id: f.mechanic_id ? Number(f.mechanic_id) : null, promised_at: localToIso(f.promised_at),
-          delivery_method: f.delivery_method, delivery_address: f.delivery_address }
+          delivery_method: f.delivery_method, delivery_address: f.delivery_address,
+          service_kind: f.service_kind || null, pay_upfront: f.pay_upfront }
       : { diagnosis: f.diagnosis };
     const r = await onSave(body);
     if (r) setEdit(false);
@@ -200,6 +234,9 @@ function DetailsCard({ j, closed, onSave, busy }) {
           <span>Delivery</span><span>{j.delivery_method === 'HOME_DELIVERY' ? `Home delivery${j.delivery_address ? ` – ${j.delivery_address}` : ''}` : 'Customer picks up'}</span>
           {j.delivered_to && <><span>Handed to</span><span>{j.delivered_to} · {fmtDateTime(j.delivered_at)}</span></>}
           <span>Advisor</span><span>{j.advisor_name || '—'}</span>
+          <span>Service type</span><span>{j.service_kind ? SERVICE_KIND_LABEL[j.service_kind] : '—'}</span>
+          <span>Payment</span><span>{j.pay_upfront ? 'At the cashier before work starts' : 'When the bike is collected'}</span>
+          {isFreeService(j.service_kind) && <><span>Engine / chassis</span><span className="mono">{j.bike.engine_no || '—'} / {j.bike.chassis_no || '—'}</span></>}
         </div>
       ) : (
         <div className="grid2">
@@ -221,6 +258,13 @@ function DetailsCard({ j, closed, onSave, busy }) {
               </select>
             </Field>
             {f.delivery_method === 'HOME_DELIVERY' && <Field label="Delivery address"><input value={f.delivery_address} onChange={s('delivery_address')} /></Field>}
+            <Field label="Service type">
+              <select value={f.service_kind} onChange={s('service_kind')}>
+                <option value="">—</option>
+                {['FREE_1', 'FREE_2', 'PAID'].map((k) => <option key={k} value={k}>{SERVICE_KIND_LABEL[k]}</option>)}
+              </select>
+            </Field>
+            <label className="toggle"><input type="checkbox" checked={f.pay_upfront} onChange={(e) => setF({ ...f, pay_upfront: e.target.checked })} /> Pays at the cashier before work starts</label>
           </>}
           <div className="row wide">
             <button className="btn primary" disabled={busy} onClick={save}>Save</button>
@@ -232,7 +276,7 @@ function DetailsCard({ j, closed, onSave, busy }) {
   );
 }
 
-function ItemsCard({ j, canPrice, canEdit, doAction, busy }) {
+function ItemsCard({ j, canPrice, showMoney, canEdit, doAction, busy }) {
   const [picker, setPicker] = useState(null);
   const t = j.totals;
   const addItems = async (items) => {
@@ -252,10 +296,11 @@ function ItemsCard({ j, canPrice, canEdit, doAction, busy }) {
         )}
       </div>
       {j.invoice && j.delivery_status !== 'DELIVERED' && <p className="small muted">Invoice created – cancel the invoice to change items.</p>}
-      <JobItems items={j.items} canPrice={canPrice} editable={canEdit} busy={busy}
+      {isFreeService(j.service_kind) && <div className="free-line">{SERVICE_KIND_LABEL[j.service_kind]} – labour <strong>FREE</strong> <span className="muted small">(Honda)</span></div>}
+      <JobItems items={j.items} canPrice={showMoney} editable={canEdit} busy={busy}
         onChange={(it, body) => doAction(() => patch(`/jobs/${j.id}/items/${it.id}`, body))}
         onRemove={(it) => confirm(`Remove ${it.description}?`) && doAction(() => del(`/jobs/${j.id}/items/${it.id}`))} />
-      {canPrice && t && (
+      {showMoney && t && (
         <div className="totals">
           <span>Services</span><span>{money(t.services_total)}</span>
           <span>Parts</span><span>{money(t.parts_total)}</span>
@@ -289,54 +334,51 @@ function DiscountRow({ j, editable, doAction }) {
   </>;
 }
 
-function InvoiceCard({ j, doAction, busy, reload }) {
+function PaymentCard({ j, doAction, busy, onPay, reload }) {
   const { can } = useAuth();
   const inv = j.invoice;
-  const [pay, setPay] = useState(null);
-  const canCreate = !inv && ['QA_CHECK', 'COMPLETED'].includes(j.status) && j.items.length > 0 && can('invoices.manage');
+  const t = j.totals;
+  const canCreate = !inv && ['QA_CHECK', 'COMPLETED'].includes(j.status) && can('invoices.manage');
+  const state = j.payment_state;
   return (
     <div className="card">
-      <h2 className="card-title">Invoice & payment</h2>
-      {!inv ? (
-        <div className="row wrap">
-          {can('invoices.manage') && <button className="btn primary" disabled={!canCreate || busy} onClick={() => doAction(() => post(`/jobs/${j.id}/invoice`))}>Create invoice</button>}
-          {!canCreate && <span className="small muted">Available once the job is in QA or completed and has items.</span>}
-        </div>
-      ) : (
-        <>
-          <div className="kv">
-            <span>Invoice</span><strong>{inv.invoice_no}</strong>
-            <span>Total</span><strong>{money(inv.total)}</strong>
-            <span>Paid</span><span>{money(inv.paid_amount)} {inv.payment_method && <small className="muted">({inv.payment_method})</small>}</span>
-            <span>Balance</span><strong className={inv.status === 'PAID' ? 'ok-text' : 'late-text'}>{money(inv.total - inv.paid_amount)}</strong>
-            <span>Status</span><span className={`badge p-${inv.status}`}>{inv.status}</span>
-          </div>
-          <div className="row wrap" style={{ marginTop: 12 }}>
-            {inv.status !== 'PAID' && can('payments.record') && <button className="btn primary" onClick={() => setPay({ amount: Math.round((inv.total - inv.paid_amount) * 100) / 100, method: 'Cash' })}>Record payment</button>}
-            {inv.paid_amount === 0 && j.delivery_status !== 'DELIVERED' && can('invoices.manage') && (
-              <button className="btn ghost danger" disabled={busy}
-                onClick={() => confirm('Cancel this invoice so items can be changed?') && doAction(() => del(`/invoices/${inv.id}`)).then(reload)}>Cancel invoice</button>
-            )}
-          </div>
-        </>
+      <div className="card-title-row">
+        <h2 className="card-title">Payments</h2>
+        {j.status !== 'CANCELLED' && <span className={`badge pay-${state}`}>{PAY_STATE_LABEL[state]}</span>}
+      </div>
+      <div className="kv">
+        <span>Total</span><strong>{money(t.balance + t.paid)}</strong>
+        <span>Paid</span><span>{money(t.paid)}</span>
+        <span>{state === 'REFUND' ? 'Refund due' : 'Balance'}</span>
+        <strong className={state === 'PAID' ? 'ok-text' : 'late-text'}>{money(Math.abs(t.balance))}</strong>
+        {inv && <><span>Invoice</span><span>{inv.invoice_no} <small className="muted">· {fmtDate(inv.issued_at)}</small></span></>}
+      </div>
+
+      {j.payments?.length > 0 && (
+        <ul className="receipts">
+          {j.payments.map((p) => (
+            <li key={p.id}>
+              <span><b>{p.receipt_no}</b> · {fmtDateTime(p.received_at)} · {p.method}{p.reference ? ` (${p.reference})` : ''}{p.received_by_name ? ` · ${p.received_by_name}` : ''}</span>
+              <span className="row">
+                <strong>{p.kind === 'REFUND' ? '−' : ''}{money(p.amount)}</strong>
+                <a className="small" href={`/print/receipt/${p.id}`} target="_blank" rel="noreferrer">Print</a>
+              </span>
+            </li>
+          ))}
+        </ul>
       )}
-      {pay && (
-        <Modal title="Record payment" onClose={() => setPay(null)}
-          footer={<><button className="btn ghost" onClick={() => setPay(null)}>Cancel</button>
-            <button className="btn primary" disabled={busy} onClick={async () => {
-              const r = await doAction(() => post(`/invoices/${inv.id}/payment`, { amount: Number(pay.amount), method: pay.method }));
-              if (r) { setPay(null); reload(); }
-            }}>Save payment</button></>}>
-          <div className="grid2">
-            <Field label="Amount (LKR)"><input type="number" min="0" autoFocus value={pay.amount} onChange={(e) => setPay({ ...pay, amount: e.target.value })} /></Field>
-            <Field label="Method">
-              <select value={pay.method} onChange={(e) => setPay({ ...pay, method: e.target.value })}>
-                {['Cash', 'Card', 'Bank Transfer', 'Other'].map((m) => <option key={m}>{m}</option>)}
-              </select>
-            </Field>
-          </div>
-        </Modal>
-      )}
+
+      <div className="row wrap" style={{ marginTop: 12 }}>
+        {state !== 'PAID' && can('payments.record') && j.delivery_status !== 'DELIVERED' && (
+          <button className={`btn ${state === 'REFUND' ? 'ghost' : 'primary'}`} disabled={busy} onClick={onPay}>{state === 'REFUND' ? 'Give refund' : 'Take payment'}</button>
+        )}
+        {canCreate && <button className="btn" disabled={busy || (!j.items.length && !isFreeService(j.service_kind))} onClick={() => doAction(() => post(`/jobs/${j.id}/invoice`))}>Create invoice</button>}
+        {inv && j.delivery_status !== 'DELIVERED' && can('invoices.manage') && (
+          <button className="btn ghost danger" disabled={busy}
+            onClick={() => confirm('Cancel this invoice so items can be changed? Payments stay on the job card.') && doAction(() => del(`/invoices/${inv.id}`)).then(reload)}>Cancel invoice</button>
+        )}
+      </div>
+      {!inv && !j.pay_upfront && !canCreate && j.status !== 'CANCELLED' && <p className="small muted">The invoice can be created once the job is in QA or completed.</p>}
     </div>
   );
 }

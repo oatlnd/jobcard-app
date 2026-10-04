@@ -3,11 +3,11 @@ import { query } from '../db.js';
 import { requirePerm } from '../auth.js';
 import { HttpError, normalizeRegNo } from '../lib/util.js';
 import { parse, z, id } from '../lib/validate.js';
-import { bikeSchema } from './customers.js';
+import { bikeSchema, bikeRegNo } from './customers.js';
 
 const r = Router();
 
-// Look up a bike by registration number (used when opening a new job card)
+// Look up a bike by registration, chassis or engine number (used when opening a new job card)
 r.get('/lookup', requirePerm('jobs.create', 'customers.view'), async (req, res) => {
   const reg = normalizeRegNo(req.query.reg);
   if (!reg) throw new HttpError(400, 'reg is required');
@@ -15,8 +15,14 @@ r.get('/lookup', requirePerm('jobs.create', 'customers.view'), async (req, res) 
     `SELECT b.*, row_to_json(c.*) AS customer,
        (SELECT json_build_object('id', j.id, 'job_no', j.job_no, 'status', j.status)
           FROM job_cards j WHERE j.bike_id = b.id AND j.status <> 'CANCELLED' AND j.delivery_status <> 'DELIVERED'
-          ORDER BY j.id DESC LIMIT 1) AS open_job
-     FROM bikes b JOIN customers c ON c.id = b.customer_id WHERE b.reg_no = $1`,
+          ORDER BY j.id DESC LIMIT 1) AS open_job,
+       COALESCE((SELECT json_agg(json_build_object('kind', j.service_kind, 'job_no', j.job_no, 'date', j.created_at::date, 'odometer', j.odometer) ORDER BY j.id)
+          FROM job_cards j WHERE j.bike_id = b.id AND j.service_kind IN ('FREE_1','FREE_2') AND j.status <> 'CANCELLED'), '[]') AS free_services
+     FROM bikes b JOIN customers c ON c.id = b.customer_id
+     WHERE b.reg_no = $1
+        OR (length($1) >= 5 AND (regexp_replace(upper(COALESCE(b.chassis_no,'')), '[^A-Z0-9]', '', 'g') = $1
+                              OR regexp_replace(upper(COALESCE(b.engine_no,'')), '[^A-Z0-9]', '', 'g') = $1))
+     ORDER BY (b.reg_no = $1) DESC LIMIT 1`,
     [reg],
   );
   res.json(rows[0] || null);
@@ -38,9 +44,9 @@ r.get('/due', requirePerm('messages.view', 'customers.view'), async (req, res) =
 r.post('/', requirePerm('customers.manage'), async (req, res) => {
   const d = parse(bikeSchema.extend({ customer_id: id }), req.body);
   const { rows } = await query(
-    `INSERT INTO bikes (customer_id, reg_no, model, year, engine_no, chassis_no, last_odometer)
-     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-    [d.customer_id, d.reg_no, d.model, d.year, d.engine_no, d.chassis_no, d.last_odometer],
+    `INSERT INTO bikes (customer_id, reg_no, model, year, engine_no, chassis_no, last_odometer, sale_date)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+    [d.customer_id, bikeRegNo(d), d.model, d.year, d.engine_no, d.chassis_no, d.last_odometer, d.sale_date],
   );
   res.status(201).json(rows[0]);
 });
@@ -54,7 +60,8 @@ r.patch('/:id', requirePerm('customers.manage'), async (req, res) => {
     }),
     req.body,
   );
-  const cols = ['reg_no', 'model', 'year', 'engine_no', 'chassis_no', 'last_odometer', 'customer_id', 'next_service_due_date']
+  if (d.reg_no === null) delete d.reg_no; // keep the current number
+  const cols = ['reg_no', 'model', 'year', 'engine_no', 'chassis_no', 'last_odometer', 'sale_date', 'customer_id', 'next_service_due_date']
     .filter((k) => d[k] !== undefined);
   if (!cols.length) throw new HttpError(400, 'Nothing to update');
   const { rows } = await query(

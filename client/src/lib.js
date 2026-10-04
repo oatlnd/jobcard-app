@@ -81,6 +81,17 @@ export const HONDA_MODELS = [
 const YEAR_NOW = new Date().getFullYear();
 export const YEARS = Array.from({ length: YEAR_NOW + 1 - 2000 }, (_, i) => YEAR_NOW - i);
 export const PAYMENT_METHODS = ['Cash', 'Bank Transfer', 'Card', 'Cheque', 'Other'];
+// Methods the cashier takes from customers
+export const CASHIER_METHODS = ['Cash', 'Card', 'Bank Transfer'];
+
+export const SERVICE_KINDS = ['FREE_1', 'FREE_2', 'PAID'];
+export const SERVICE_KIND_LABEL = { FREE_1: 'Free service 1', FREE_2: 'Free service 2', PAID: 'Paid service' };
+export const SERVICE_KIND_SHORT = { FREE_1: 'FREE 1', FREE_2: 'FREE 2', PAID: 'PAID SVC' };
+export const isFreeService = (k) => k === 'FREE_1' || k === 'FREE_2';
+export const PAY_STATE_LABEL = { DUE: 'Unpaid', PAID: 'Paid', REFUND: 'Refund due' };
+
+/** Bike number for display; unregistered bikes show the chassis number instead */
+export const bikeLabel = (b) => (b?.reg_no?.startsWith('UNREG') ? `New · ${b.chassis_no || b.reg_no.slice(5)}` : fmtReg(b?.reg_no));
 
 export const num = (n) => Number(n || 0).toLocaleString('en-LK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 export const money = (n) => 'LKR ' + num(n);
@@ -105,6 +116,7 @@ export function fmtMobile(m) {
 /** NPBCJ4521 -> NP BCJ-4521 (display only) */
 export function fmtReg(r) {
   if (!r) return '';
+  if (r.startsWith('UNREG')) return 'Not registered';
   const m = r.match(/^([A-Z]{2})?([A-Z]{1,3})(\d{4})$/);
   if (!m) return r;
   return [m[1], `${m[2]}-${m[3]}`].filter(Boolean).join(' ');

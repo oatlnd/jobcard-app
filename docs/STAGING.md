@@ -4,7 +4,7 @@ The test site is a second copy of the app on the same VPS:
 
 | | Live site | Test site |
 |---|---|---|
-| Address | https://jobs.mobike360.com | https://test.jobs.mobike360.com (extra password) |
+| Address | http://YOUR-VPS-IP | http://YOUR-VPS-IP:8080 (extra password) |
 | Folder on VPS | `~/jobcard-app` | `~/jobcard-staging` |
 | Database | `jobcards` | `jobcards_staging` |
 | Photos | `~/jobcard-app/server/uploads` (or UPLOAD_DIR) | `~/jobcard-staging-uploads` |
@@ -19,20 +19,23 @@ The test site shows an orange **TEST SITE** strip at the top and `[TEST]` in the
 
 ## One-time setup
 
-### 1. DNS
-In your domain's DNS settings add an **A record**: name `test.jobs`, value = the VPS IP (the same IP as `jobs`). Wait 5–30 minutes.
-
-### 2. On the VPS
+No domain needed. On the VPS:
 ```bash
 git clone git@github.com:oatlnd/jobcard-app.git ~/jobcard-staging
 cd ~/jobcard-staging
 ./deploy/setup-staging.sh
 ```
-It asks for your sudo password, a username/password for the test site, and whether to copy the live data (personal details scrambled). Answer **Y**.
+It asks for your sudo password, a username/password for the test site, and whether to copy the
+live data (personal details scrambled). Answer **Y**. At the end it prints the address, e.g.
+`http://72.61.10.25:8080`.
 
-### 3. GitHub (optional but recommended)
-Repo → Settings → Environments → New environment → `staging` (no approvals needed).
-If your folder is not `/home/ramana/jobcard-staging`, add the secret `VPS_STAGING_DIR`.
+If that page doesn't open from your phone/PC: Hostinger hPanel → VPS → **Firewall** → allow TCP port 8080.
+
+Optional:
+- Port 8080 already used? `STAGING_PORT=8081 ./deploy/setup-staging.sh`
+- Later you get a domain? `STAGING_DOMAIN=test.example.com ./deploy/setup-staging.sh` (adds HTTPS).
+- GitHub: Settings → Environments → New environment → `staging` (no approvals). If your folder is not
+  `/home/ramana/jobcard-staging`, add the secret `VPS_STAGING_DIR`.
 
 ---
 
@@ -41,7 +44,7 @@ If your folder is not `/home/ramana/jobcard-staging`, add the secret `VPS_STAGIN
 1. Push your feature branch as usual: `git push -u origin feature/my-change`.
 2. GitHub → **Actions** → **Test and deploy** → **Run workflow**.
 3. *Use workflow from*: your branch. *Target*: **staging**. Click **Run workflow**.
-4. When it is green, open https://test.jobs.mobike360.com and try the change.
+4. When it is green, open http://YOUR-VPS-IP:8080 and try the change.
 5. Happy? Open the pull request and merge → the live site updates automatically.
 
 Or from the VPS: `cd ~/jobcard-staging && ./deploy/update.sh feature/my-change`
@@ -74,6 +77,7 @@ to be sent is marked as sent, so nothing piles up.
 ```bash
 pm2 delete jobcard-staging-api jobcard-staging-worker && pm2 save
 sudo rm /etc/nginx/sites-enabled/jobs-staging && sudo systemctl reload nginx
+sudo ufw delete allow 8080/tcp 2>/dev/null
 sudo -u postgres dropdb jobcards_staging
 rm -rf ~/jobcard-staging ~/jobcard-staging-uploads ~/backups-staging
 ```
