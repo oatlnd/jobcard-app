@@ -1,0 +1,128 @@
+# Runs the tests on every pull request and push.
+# After a merge to main (and only if the tests pass) it deploys to the VPS over SSH.
+#
+# One-time setup (see docs/GITHUB.md):
+#   Repo → Settings → Secrets and variables → Actions → New repository secret
+#     VPS_HOST     the VPS IP address, e.g. 72.61.10.25
+#     VPS_USER     ramana
+#     VPS_SSH_KEY  the private key GitHub uses to log in to the VPS
+#   Optional: VPS_PORT (default 22), VPS_APP_DIR (default /home/ramana/jobcard-app)
+#   Auto-deploy stays off until VPS_HOST is set, so tests can run before the server exists.
+name: Test and deploy
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:        # "Run workflow" button in the Actions tab
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: jobcards
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/jobcards
+      UPLOAD_DIR: /tmp/jobcard-uploads
+      PORT: 3000
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            server/package-lock.json
+            client/package-lock.json
+
+      - name: Install server packages
+        working-directory: server
+        run: npm ci --no-audit --no-fund
+
+      - name: Create tables and demo data
+        working-directory: server
+        run: npm run seed
+
+      - name: Start the API
+        working-directory: server
+        run: |
+          nohup node src/index.js > /tmp/api.log 2>&1 &
+          for i in $(seq 1 30); do curl -fsS http://localhost:3000/api/health && exit 0; sleep 1; done
+          cat /tmp/api.log; exit 1
+
+      - name: API tests (job cards, permissions, purchasing, expenses, payroll)
+        working-directory: server
+        run: npm run test:api
+
+      - name: Worker tests (messages, reminders)
+        working-directory: server
+        run: npm test
+
+      - name: Build the screens
+        working-directory: client
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: Show API log if something failed
+        if: failure()
+        run: cat /tmp/api.log || true
+
+  deploy:
+    name: Deploy to VPS
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+    steps:
+      - name: Check deploy settings
+        id: check
+        run: |
+          if [ -z "$VPS_HOST" ]; then
+            echo "VPS_HOST secret not set yet - skipping deploy."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up SSH key
+        if: steps.check.outputs.skip != 'true'
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          SSH_PORT: ${{ secrets.VPS_PORT || '22' }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$SSH_PORT" -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Pull, build and restart on the VPS
+        if: steps.check.outputs.skip != 'true'
+        env:
+          SSH_USER: ${{ secrets.VPS_USER }}
+          SSH_PORT: ${{ secrets.VPS_PORT || '22' }}
+          APP_DIR: ${{ secrets.VPS_APP_DIR || '/home/ramana/jobcard-app' }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" -o BatchMode=yes "$SSH_USER@$VPS_HOST" \
+            "bash -lc 'cd \"$APP_DIR\" && ./deploy/update.sh main'"
+
+      - name: Remove key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
