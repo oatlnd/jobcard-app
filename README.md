@@ -61,7 +61,7 @@ cp jobcard-app-v1/server/.env jobcard-app/server/.env
 echo "UPLOAD_DIR=/home/ramana/jobcard-uploads" >> jobcard-app/server/.env && mkdir -p ~/jobcard-uploads
 cd jobcard-app/server && npm ci --omit=dev && npm run migrate
 cd ../client && npm ci && npm run build
-cd .. && pm2 delete all && pm2 start ecosystem.config.cjs && pm2 save
+cd .. && pm2 delete jobcard-api jobcard-worker; pm2 start ecosystem.config.cjs && pm2 save
 sudo cp deploy/nginx-jobs.conf /etc/nginx/sites-available/jobs && sudo nginx -t && sudo systemctl reload nginx && sudo certbot --nginx -d jobs.mobike360.com
 ```
 
@@ -151,6 +151,9 @@ Also turn on weekly snapshots in hPanel → VPS. Copy a backup off the server no
 ### Version control & automatic deploy
 The project is a Git repository with tags `v1.0` and `v2.0`. **[docs/GITHUB.md](docs/GITHUB.md)** walks through pushing it to a private GitHub repo, letting the VPS pull from it, and turning on GitHub Actions: tests run on every pull request and every merge to `main` deploys to the VPS automatically.
 
+### Test site (staging)
+**[docs/STAGING.md](docs/STAGING.md)**: a password-protected copy at test.jobs.mobike360.com with its own database (scrambled copy of live data) where no WhatsApp/SMS is ever sent. Deploy any branch there from the Actions tab before merging.
+
 ### Docker / Coolify instead
 `cp server/.env.example .env`, add `DB_PASSWORD=...`, then `docker compose up -d --build`. In Coolify, create a **Docker Compose** resource from this repo. Create the first login with
 `docker compose exec api npm run create-admin -- ramana 'YourPassword' "Ramana"`.
@@ -204,6 +207,7 @@ client/
   src/pages/              job cards, printing, parts, purchasing/GRN, expenses, employees, attendance, payroll, roles, lists, settings
 deploy/                   nginx config, backup and update (deploy) scripts
 docs/GITHUB.md            GitHub, branches, releases, auto-deploy, rollback
+docs/STAGING.md           test site: setup, testing branches, refreshing data
 .github/workflows/        CI tests + automatic deploy to the VPS
 ecosystem.config.cjs      PM2 (api + worker)
 docker-compose.yml        optional Docker/Coolify setup

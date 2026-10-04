@@ -150,7 +150,7 @@ cd ~/jobcard-app
 **If the new version changed the database**, `update.sh` refuses to roll back and tells you which database change is in the way – old code can't run on a newer database. Restore the backup that was taken automatically just before the bad deploy, then roll back:
 
 ```bash
-pm2 stop all
+pm2 stop jobcard-api jobcard-worker      # live site only (the test site keeps running)
 ls -lt ~/backups | head                    # pick the jobcards_YYYY-MM-DD_HHMM.sql.gz from just before the deploy
 sudo -u postgres psql -c "DROP DATABASE jobcards;" -c "CREATE DATABASE jobcards OWNER jobapp;"
 gunzip -c ~/backups/jobcards_YYYY-MM-DD_HHMM.sql.gz | psql "$(grep ^DATABASE_URL ~/jobcard-app/server/.env | cut -d= -f2-)"

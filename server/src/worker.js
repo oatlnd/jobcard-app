@@ -95,7 +95,7 @@ export async function queueServiceReminders({ ignoreHours = false } = {}) {
 }
 
 async function main() {
-  log(`Worker started (whatsapp=${config.notify.whatsappProvider}, sms=${config.notify.smsProvider})`);
+  log(`Worker started [${config.deployEnv}] (whatsapp=${config.notify.whatsappProvider}, sms=${config.notify.smsProvider})`);
   let stopping = false;
   const stop = () => { stopping = true; };
   process.on('SIGTERM', stop);
