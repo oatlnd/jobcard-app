@@ -1,21 +1,33 @@
 #!/usr/bin/env bash
 # One-time setup of the TEST SITE (staging) on the same VPS as the live site.
-#   git clone git@github.com:YOUR-USER/jobcard-app.git ~/jobcard-staging
+#   git clone git@github.com:oatlnd/jobcard-app.git ~/jobcard-staging
 #   cd ~/jobcard-staging && ./deploy/setup-staging.sh
-# Optional: STAGING_DOMAIN=test.jobs.mobike360.com PROD_DIR=~/jobcard-app ./deploy/setup-staging.sh
+# Default: the test site opens at http://YOUR-VPS-IP:8080 (no domain needed).
+# Options: STAGING_PORT=8080   PROD_DIR=~/jobcard-app
+#          STAGING_DOMAIN=test.jobs.example.com   (use a domain + HTTPS instead of IP:port)
 set -euo pipefail
 
 main() {
   cd "$(dirname "$0")/.."
-  local HERE PROD_DIR DOMAIN
+  local HERE PROD_DIR DOMAIN PORT NAME URL IP
   HERE=$(pwd)
   PROD_DIR="${PROD_DIR:-$HOME/jobcard-app}"
-  DOMAIN="${STAGING_DOMAIN:-test.jobs.mobike360.com}"
+  DOMAIN="${STAGING_DOMAIN:-}"
+  if [ -n "$DOMAIN" ]; then
+    PORT=80; NAME="$DOMAIN"; URL="https://$DOMAIN"
+  else
+    PORT="${STAGING_PORT:-8080}"; NAME="_"
+    IP=$(curl -4 -fsS --max-time 5 https://ifconfig.me 2>/dev/null || hostname -I | awk '{print $1}')
+    URL="http://$IP:$PORT"
+    if ss -ltn | awk '{print $4}' | grep -qE "[:.]$PORT\$" && [ ! -f /etc/nginx/sites-enabled/jobs-staging ]; then
+      echo "!! Port $PORT is already used by something else. Try:  STAGING_PORT=8081 ./deploy/setup-staging.sh" >&2; exit 1
+    fi
+  fi
 
   [ "$(realpath "$HERE")" != "$(realpath -m "$PROD_DIR")" ] || { echo "!! Run this from the TEST-SITE folder (e.g. ~/jobcard-staging), not the live one." >&2; exit 1; }
   [ -f "$PROD_DIR/server/.env" ] || { echo "!! Live site not found at $PROD_DIR. Set PROD_DIR=... and try again." >&2; exit 1; }
 
-  echo "Setting up the test site for https://$DOMAIN"
+  echo "Setting up the test site at $URL"
   echo "  test-site folder : $HERE"
   echo "  live-site folder : $PROD_DIR (only read, never changed)"
   echo
@@ -45,7 +57,7 @@ NODE_ENV=production
 PORT=3100
 DATABASE_URL=$S_DB
 JWT_SECRET=$(openssl rand -hex 32)
-PUBLIC_BASE_URL=https://$DOMAIN
+PUBLIC_BASE_URL=$URL
 SERVE_CLIENT=false
 UPLOAD_DIR=$HOME/jobcard-staging-uploads
 BACKUP_DIR=$HOME/backups-staging
@@ -72,12 +84,15 @@ EOF
 
   # ---- 4. Nginx ----
   echo "==> 4/6 Web server (Nginx)"
-  sed -e "s#test.jobs.mobike360.com#$DOMAIN#g" -e "s#/home/ramana/jobcard-staging#$HERE#g" deploy/nginx-staging.conf \
+  sed -e "s#__PORT__#$PORT#" -e "s#__NAME__#$NAME#" -e "s#__DIR__#$HERE#" deploy/nginx-staging.conf \
     | sudo tee /etc/nginx/sites-available/jobs-staging >/dev/null
   sudo ln -sf /etc/nginx/sites-available/jobs-staging /etc/nginx/sites-enabled/jobs-staging
   chmod 755 "$HOME"
   sudo nginx -t
   sudo systemctl reload nginx
+  if [ "$PORT" != "80" ] && sudo ufw status 2>/dev/null | grep -q "Status: active"; then
+    sudo ufw allow "$PORT/tcp" >/dev/null && echo "    opened port $PORT in the firewall"
+  fi
 
   # ---- 5. Code + data ----
   echo "==> 5/6 Building the test site (2–4 minutes)"
@@ -90,17 +105,23 @@ EOF
     ./deploy/refresh-staging-data.sh -y
   fi
 
-  # ---- 6. HTTPS ----
-  echo "==> 6/6 HTTPS certificate"
-  if sudo certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email --redirect; then
-    echo "    HTTPS ready"
+  # ---- 6. HTTPS (only with a domain) ----
+  if [ -n "$DOMAIN" ]; then
+    echo "==> 6/6 HTTPS certificate"
+    if sudo certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email --redirect; then
+      echo "    HTTPS ready"
+    else
+      echo "    Could not get the certificate yet (DNS for $DOMAIN may not point here yet)."
+      echo "    When it does, run:  sudo certbot --nginx -d $DOMAIN"
+    fi
   else
-    echo "    Could not get the certificate yet (DNS for $DOMAIN may not point here yet)."
-    echo "    When it does, run:  sudo certbot --nginx -d $DOMAIN"
+    echo "==> 6/6 HTTPS skipped (IP address only)"
   fi
 
   echo
-  echo "Done. Open https://$DOMAIN (use the test-site username/password, then your normal app login)."
+  echo "Done. Open  $URL"
+  echo "First the test-site username/password, then your normal app login."
+  echo "If the page doesn't open: in Hostinger hPanel → VPS → Firewall, allow TCP port $PORT."
 }
 
 main "$@"
