@@ -84,9 +84,18 @@ export const PAYMENT_METHODS = ['Cash', 'Bank Transfer', 'Card', 'Cheque', 'Othe
 // Methods the cashier takes from customers
 export const CASHIER_METHODS = ['Cash', 'Card', 'Bank Transfer'];
 
-export const SERVICE_KINDS = ['FREE_1', 'FREE_2', 'PAID'];
-export const SERVICE_KIND_LABEL = { FREE_1: 'Free service 1', FREE_2: 'Free service 2', PAID: 'Paid service' };
-export const SERVICE_KIND_SHORT = { FREE_1: 'FREE 1', FREE_2: 'FREE 2', PAID: 'PAID SVC' };
+// Visit types: what the customer came for. Mirrors server/src/lib/kits.js VISIT_TYPES and the rules in routes/jobs.js
+export const VISIT = {
+  FREE_1: { label: 'Free service 1', short: 'FREE 1', icon: '🎁', hint: 'Labour FREE · pays oil & parts', needBike: true, needOdo: true },
+  FREE_2: { label: 'Free service 2', short: 'FREE 2', icon: '🎁', hint: 'Labour FREE · pays oil & parts', needBike: true, needOdo: true },
+  WARRANTY: { label: 'Service – under warranty', short: 'WARRANTY', icon: '🛡', hint: 'Pays service + oil', needBike: true, needOdo: true },
+  PAID: { label: 'Service – out of warranty', short: 'PAID SVC', icon: '🔩', hint: 'Older bikes · pays service + oil' },
+  MINOR: { label: 'Minor repair', short: 'MINOR', icon: '🛠', hint: 'e.g. brake pads, cables', needComplaint: true },
+  MAJOR: { label: 'Major repair', short: 'MAJOR', icon: '⚙', hint: 'Mechanical work · usually pays at pickup', needComplaint: true, payLater: true },
+};
+export const SERVICE_KINDS = Object.keys(VISIT);
+export const SERVICE_KIND_LABEL = Object.fromEntries(SERVICE_KINDS.map((k) => [k, VISIT[k].label]));
+export const SERVICE_KIND_SHORT = Object.fromEntries(SERVICE_KINDS.map((k) => [k, VISIT[k].short]));
 export const isFreeService = (k) => k === 'FREE_1' || k === 'FREE_2';
 export const PAY_STATE_LABEL = { DUE: 'Unpaid', PAID: 'Paid', REFUND: 'Refund due' };
 

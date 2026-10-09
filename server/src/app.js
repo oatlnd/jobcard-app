@@ -16,6 +16,7 @@ import jobRoutes from './routes/jobs.js';
 import invoiceRoutes from './routes/invoices.js';
 import cashierRoutes from './routes/cashier.js';
 import reportRoutes from './routes/reports.js';
+import kitRoutes from './routes/kits.js';
 import dashboardRoutes from './routes/dashboard.js';
 import settingsRoutes from './routes/settings.js';
 import notificationRoutes from './routes/notifications.js';
@@ -52,6 +53,7 @@ export function createApp() {
   app.use('/api/invoices', invoiceRoutes);
   app.use('/api/cashier', cashierRoutes);
   app.use('/api/reports', reportRoutes);
+  app.use('/api/kits', kitRoutes);
   app.use('/api/dashboard', dashboardRoutes);
   app.use('/api/settings', settingsRoutes);
   app.use('/api/notifications', notificationRoutes);

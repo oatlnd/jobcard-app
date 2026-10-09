@@ -33,6 +33,9 @@ for (const [name, u, p, role] of users) {
 const parts = [
   ['OIL-10W30-1L', 'Honda 4T Engine Oil 10W-30 (1L)', 'Oils & Lubricants', 'Litre', 2450, 1900, 40, 10],
   ['OIL-GEAR-120', 'Gear Oil (120ml) - Scooter', 'Oils & Lubricants', 'Nos', 650, 480, 30, 8],
+  ['OIL-SCT-08', 'Honda Scooter Oil 10W-30 (0.8L)', 'Oils & Lubricants', 'Bottle', 2100, 1650, 30, 8],
+  ['OIL-MA-12', 'Honda 4T Oil 10W-30 MA (1.2L)', 'Oils & Lubricants', 'Bottle', 3300, 2600, 20, 6],
+  ['WSH-DRAIN', 'Drain Plug Washer', 'Engine Components', 'Nos', 50, 25, 100, 20],
   ['FLT-OIL-001', 'Oil Filter', 'Filters', 'Nos', 950, 700, 25, 5],
   ['FLT-AIR-110', 'Air Filter Element (110cc)', 'Filters', 'Nos', 1450, 1050, 15, 4],
   ['FLT-AIR-160', 'Air Filter Element (160cc)', 'Filters', 'Nos', 1850, 1350, 3, 3],
@@ -117,6 +120,20 @@ await mkJob(bikes[0], 'CHECKED_IN', 'PENDING', 'Regular service, chain noise', n
 await mkJob(bikes[1], 'IN_PROGRESS', 'PENDING', 'Brake feels soft, oil change', uid.kumar, ['CHECKED_IN', 'IN_PROGRESS'], ['General Service', 'Brake Service'], [['OIL-GEAR-120', 1], ['BRK-SHOE-RR', 1]], 11820);
 await mkJob(bikes[2], 'WAITING_PARTS', 'PENDING', 'Clutch slipping', uid.suresh, ['CHECKED_IN', 'IN_PROGRESS', 'WAITING_PARTS'], ['Clutch Overhaul'], [], 8400);
 await mkJob(bikes[4], 'COMPLETED', 'READY', 'First paid service', uid.kumar, ['CHECKED_IN', 'IN_PROGRESS', 'QA_CHECK', 'COMPLETED'], ['Periodic Service'], [['OIL-10W30-1L', 1], ['FLT-AIR-110', 1]], 6100);
+
+// Oil chart (which oil / filter each bike group uses) and a demo repair kit
+const grp = async (name, oil, qty, filter) => q(
+  'UPDATE bike_groups SET oil_part_id = $1, oil_qty = $2, filter_part_id = $3 WHERE name = $4', [partIds[oil], qty, filter ? partIds[filter] : null, name],
+);
+await grp('Scooter 110cc', 'OIL-SCT-08', 1, 'WSH-DRAIN');
+await grp('Bike 100–125cc', 'OIL-10W30-1L', 1, 'WSH-DRAIN');
+await grp('Bike 150–200cc', 'OIL-MA-12', 1, 'FLT-OIL-001');
+await grp('Big bike 250cc+', 'OIL-10W30-1L', 2, 'FLT-OIL-001');
+{
+  const k = (await q(`INSERT INTO kits (name, visit_types, sort_order) VALUES ('Rear brake shoe replacement', '{MINOR,WARRANTY,PAID}', 5) RETURNING id`)).rows[0].id;
+  await q(`INSERT INTO kit_lines (kit_id, kind, description, unit_price, sort_order) VALUES ($1, 'labour', 'Rear brake shoe – fitting', 600, 1)`, [k]);
+  await q(`INSERT INTO kit_lines (kit_id, kind, part_id, qty, sort_order) VALUES ($1, 'part', $2, 1, 2)`, [k, partIds['BRK-SHOE-RR']]);
+}
 
 // Suppliers and a purchase order
 const sup1 = (await q(`INSERT INTO suppliers (name, contact_person, phone, address, payment_terms) VALUES ('Lanka Honda Parts (Pvt) Ltd','Sales Desk','0112 345 678','Colombo 10','30 days credit') RETURNING id`)).rows[0].id;

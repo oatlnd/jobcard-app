@@ -17,7 +17,9 @@ r.get('/lookup', requirePerm('jobs.create', 'customers.view'), async (req, res) 
           FROM job_cards j WHERE j.bike_id = b.id AND j.status <> 'CANCELLED' AND j.delivery_status <> 'DELIVERED'
           ORDER BY j.id DESC LIMIT 1) AS open_job,
        COALESCE((SELECT json_agg(json_build_object('kind', j.service_kind, 'job_no', j.job_no, 'date', j.created_at::date, 'odometer', j.odometer) ORDER BY j.id)
-          FROM job_cards j WHERE j.bike_id = b.id AND j.service_kind IN ('FREE_1','FREE_2') AND j.status <> 'CANCELLED'), '[]') AS free_services
+          FROM job_cards j WHERE j.bike_id = b.id AND j.service_kind IN ('FREE_1','FREE_2') AND j.status <> 'CANCELLED'), '[]') AS free_services,
+       (SELECT g.name FROM bike_models m JOIN bike_groups g ON g.id = m.group_id WHERE lower(m.name) = lower(b.model) LIMIT 1) AS group_name,
+       (b.sale_date + make_interval(months => COALESCE((SELECT (value->>'months')::int FROM settings WHERE key = 'warranty'), 24)))::date AS warranty_until
      FROM bikes b JOIN customers c ON c.id = b.customer_id
      WHERE b.reg_no = $1
         OR (length($1) >= 5 AND (regexp_replace(upper(COALESCE(b.chassis_no,'')), '[^A-Z0-9]', '', 'g') = $1

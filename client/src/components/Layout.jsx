@@ -27,6 +27,7 @@ const NAV = [
   { to: '/advances', label: 'Salary advances', icon: '↗', perms: ['advances.manage'] },
   { to: '/payroll', label: 'Payroll', icon: '¶', perms: ['payroll.view'] },
   { section: 'Admin' },
+  { to: '/kits', label: 'Kits & oil chart', icon: '📦', perms: ['masters.manage'] },
   { to: '/masters', label: 'Lists & service types', icon: '☰', perms: ['masters.manage'] },
   { to: '/users', label: 'Staff logins & roles', icon: '⚿', perms: ['users.manage'] },
   { to: '/settings', label: 'Settings', icon: '⚑', perms: ['settings.manage'] },

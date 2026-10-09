@@ -9,10 +9,11 @@ import Attachments from '../components/Attachments.jsx';
 import PrintMenu from '../components/PrintMenu.jsx';
 import { ServicePicker, PartPicker, CustomPicker } from '../components/ItemPicker.jsx';
 import PaymentModal from '../components/PaymentModal.jsx';
+import KitPicker from '../components/KitPicker.jsx';
 import {
   STATUS_LABEL, DELIVERY_LABEL, DELIVERY_ACTION, allowedStatuses, allowedDelivery, actionLabel,
   fmtMobile, fmtDateTime, fmtDate, money, isoToLocal, localToIso,
-  SERVICE_KIND_LABEL, SERVICE_KIND_SHORT, PAY_STATE_LABEL, isFreeService, bikeLabel,
+  SERVICE_KIND_LABEL, SERVICE_KIND_SHORT, SERVICE_KINDS, PAY_STATE_LABEL, isFreeService, bikeLabel,
 } from '../lib.js';
 
 export default function JobDetail() {
@@ -261,7 +262,7 @@ function DetailsCard({ j, closed, onSave, busy }) {
             <Field label="Service type">
               <select value={f.service_kind} onChange={s('service_kind')}>
                 <option value="">—</option>
-                {['FREE_1', 'FREE_2', 'PAID'].map((k) => <option key={k} value={k}>{SERVICE_KIND_LABEL[k]}</option>)}
+                {SERVICE_KINDS.map((k) => <option key={k} value={k}>{SERVICE_KIND_LABEL[k]}</option>)}
               </select>
             </Field>
             <label className="toggle"><input type="checkbox" checked={f.pay_upfront} onChange={(e) => setF({ ...f, pay_upfront: e.target.checked })} /> Pays at the cashier before work starts</label>
@@ -289,6 +290,7 @@ function ItemsCard({ j, canPrice, showMoney, canEdit, doAction, busy }) {
         <h2 className="card-title">Services & parts</h2>
         {canEdit && (
           <div className="row wrap">
+            <button className="btn small primary" onClick={() => setPicker('kit')}>📦 + Kit</button>
             <button className="btn small" onClick={() => setPicker('services')}>+ Services</button>
             <button className="btn small" onClick={() => setPicker('parts')}>+ Parts</button>
             <button className="btn small ghost" onClick={() => setPicker('custom')}>+ Custom</button>
@@ -296,7 +298,7 @@ function ItemsCard({ j, canPrice, showMoney, canEdit, doAction, busy }) {
         )}
       </div>
       {j.invoice && j.delivery_status !== 'DELIVERED' && <p className="small muted">Invoice created – cancel the invoice to change items.</p>}
-      {isFreeService(j.service_kind) && <div className="free-line">{SERVICE_KIND_LABEL[j.service_kind]} – labour <strong>FREE</strong> <span className="muted small">(Honda)</span></div>}
+      {isFreeService(j.service_kind) && !j.items.some((i) => i.kit_id && Number(i.unit_price) === 0 && i.item_type === 'custom_service') && <div className="free-line">{SERVICE_KIND_LABEL[j.service_kind]} – labour <strong>FREE</strong> <span className="muted small">(Honda)</span></div>}
       <JobItems items={j.items} canPrice={showMoney} editable={canEdit} busy={busy}
         onChange={(it, body) => doAction(() => patch(`/jobs/${j.id}/items/${it.id}`, body))}
         onRemove={(it) => confirm(`Remove ${it.description}?`) && doAction(() => del(`/jobs/${j.id}/items/${it.id}`))} />
@@ -309,6 +311,8 @@ function ItemsCard({ j, canPrice, showMoney, canEdit, doAction, busy }) {
           <strong>Total</strong><strong>{money(t.total)}</strong>
         </div>
       )}
+      {picker === 'kit' && <KitPicker job={j} busy={busy} onClose={() => setPicker(null)}
+        onAdd={async (k) => { const r = await doAction(() => post(`/jobs/${j.id}/kits`, { kit_id: k.id })); if (r) setPicker(null); }} />}
       {picker === 'services' && <ServicePicker canPrice={canPrice} busy={busy} existingIds={j.items.filter((i) => i.service_type_id).map((i) => i.service_type_id)} onClose={() => setPicker(null)} onAdd={addItems} />}
       {picker === 'parts' && <PartPicker canPrice={canPrice} busy={busy} onClose={() => setPicker(null)} onAdd={addItems} />}
       {picker === 'custom' && <CustomPicker canPrice={canPrice} busy={busy} onClose={() => setPicker(null)} onAdd={addItems} />}

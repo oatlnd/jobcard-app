@@ -19,7 +19,7 @@ export default function ReceiptPrint() {
   const [{ payment: p, job: j, paid_to_date: paidToDate, balance_after: balance }, settings] = data;
   const shop = settings.shop || {};
   const refund = p.kind === 'REFUND';
-  const free = isFreeService(j.service_kind);
+  const free = isFreeService(j.service_kind) && !j.items.some((i) => i.kit_id && Number(i.unit_price) === 0 && i.item_type === 'custom_service');
 
   return (
     <div className="print-page fmt-thermal">
@@ -55,7 +55,7 @@ export default function ReceiptPrint() {
         {j.items.map((it) => (
           <div key={it.id} className="r-item">
             <div>{it.description}</div>
-            <div className="r-row r-sub"><span>{Number(it.qty)} x {num(it.unit_price)}</span><span>{num(it.line_total)}</span></div>
+            <div className="r-row r-sub"><span>{Number(it.qty)} x {num(it.unit_price)}</span><span>{isFreeService(j.service_kind) && it.item_type === 'custom_service' && Number(it.line_total) === 0 ? 'FREE' : num(it.line_total)}</span></div>
           </div>
         ))}
         <div className="r-rule" />

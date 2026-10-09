@@ -10,6 +10,7 @@ import {
   loadJob, sanitizeJob, assertEditable, assertCanSee, computeTotals, scopeSql, OPEN_SQL, canSeeMoney,
 } from '../lib/jobs.js';
 import { balanceOf, createInvoice, paymentState } from '../lib/payments.js';
+import { VISIT_TYPES, addKitToJob } from '../lib/kits.js';
 import { round2 } from '../lib/util.js';
 import { queueNotification, statusUrl, fmtMoney, getSettings } from '../lib/notify.js';
 import { emitJobChanged, emitPartsChanged } from '../realtime.js';
@@ -167,26 +168,40 @@ const createSchema = z.object({
   promised_at: z.string().datetime({ offset: true }).optional().nullable().or(z.literal('').transform(() => null)),
   delivery_method: z.enum(['PICKUP', 'HOME_DELIVERY']).default('PICKUP'),
   delivery_address: optText,
-  service_kind: z.enum(['FREE_1', 'FREE_2', 'PAID']).optional().nullable(),
+  service_kind: z.enum(VISIT_TYPES).optional().nullable(),
   pay_upfront: z.boolean().default(false),
+  kits: z.array(id).max(10).default([]),
   // Fill in missing details on an existing bike (e.g. engine/chassis no for a free service)
   bike_update: z.object({ engine_no: optText, chassis_no: optText, sale_date: bikeSchema.shape.sale_date }).optional(),
   items: z.array(itemSchema).max(100).default([]),
 });
 
 const FREE_LABEL = { FREE_1: 'Free service 1', FREE_2: 'Free service 2' };
+const VISIT_LABEL = { ...FREE_LABEL, WARRANTY: 'Service under warranty', PAID: 'Paid service', MINOR: 'Minor repair', MAJOR: 'Major repair' };
 
-/** Free services need engine no, chassis no and odometer (for the Honda claim) and can be used once per bike. */
-async function checkFreeService(c, kind, bikeId, odometer, exceptJobId = 0) {
-  if (!FREE_LABEL[kind]) return;
-  const bike = (await c.query('SELECT engine_no, chassis_no FROM bikes WHERE id = $1', [bikeId])).rows[0];
-  if (!bike?.engine_no || !bike?.chassis_no) throw new HttpError(400, `${FREE_LABEL[kind]}: enter the engine number and chassis number`);
-  if (odometer == null) throw new HttpError(400, `${FREE_LABEL[kind]}: enter the odometer reading (km)`);
-  const used = (await c.query(
-    `SELECT job_no FROM job_cards WHERE bike_id = $1 AND service_kind = $2 AND status <> 'CANCELLED' AND id <> $3 LIMIT 1`,
-    [bikeId, kind, exceptJobId],
-  )).rows[0];
-  if (used) throw new HttpError(409, `${FREE_LABEL[kind]} was already given on job card ${used.job_no}`);
+/**
+ * Rules per visit type:
+ *  free services + warranty service need engine no, chassis no and odometer (Honda claims);
+ *  each free service once per bike; repairs need the customer's complaint.
+ */
+async function checkVisit(c, kind, { bikeId, odometer, complaint, exceptJobId = 0 }) {
+  if (!kind) return;
+  const label = VISIT_LABEL[kind];
+  if (FREE_LABEL[kind] || kind === 'WARRANTY') {
+    const bike = (await c.query('SELECT engine_no, chassis_no FROM bikes WHERE id = $1', [bikeId])).rows[0];
+    if (!bike?.engine_no || !bike?.chassis_no) throw new HttpError(400, `${label}: enter the engine number and chassis number`);
+    if (odometer == null) throw new HttpError(400, `${label}: enter the odometer reading (km)`);
+  }
+  if (FREE_LABEL[kind]) {
+    const used = (await c.query(
+      `SELECT job_no FROM job_cards WHERE bike_id = $1 AND service_kind = $2 AND status <> 'CANCELLED' AND id <> $3 LIMIT 1`,
+      [bikeId, kind, exceptJobId],
+    )).rows[0];
+    if (used) throw new HttpError(409, `${label} was already given on job card ${used.job_no}`);
+  }
+  if ((kind === 'MINOR' || kind === 'MAJOR') && !String(complaint || '').trim()) {
+    throw new HttpError(400, `${label}: enter the customer's complaint / what needs fixing`);
+  }
 }
 
 r.post('/', requirePerm('jobs.create'), async (req, res) => {
@@ -227,7 +242,7 @@ r.post('/', requirePerm('jobs.create'), async (req, res) => {
         [u.engine_no || null, u.chassis_no || null, u.sale_date || null, bikeId],
       );
     }
-    await checkFreeService(c, d.service_kind, bikeId, d.odometer);
+    await checkVisit(c, d.service_kind, { bikeId, odometer: d.odometer, complaint: d.complaint });
 
     const open = (await c.query(`SELECT job_no FROM job_cards j WHERE bike_id = $1 AND ${OPEN_SQL}`, [bikeId])).rows[0];
     if (open) throw new HttpError(409, `This bike already has an open job card (${open.job_no})`);
@@ -247,6 +262,7 @@ r.post('/', requirePerm('jobs.create'), async (req, res) => {
     );
     if (d.odometer != null) await c.query('UPDATE bikes SET last_odometer = GREATEST(COALESCE(last_odometer,0), $1) WHERE id = $2', [d.odometer, bikeId]);
     if (d.items.length) stockChanged = await addItems(c, job.id, d.items, req.user);
+    for (const kitId of d.kits) stockChanged = (await addKitToJob(c, job.id, kitId, req.user.id)) || stockChanged;
 
     const bike = (await c.query('SELECT reg_no FROM bikes WHERE id = $1', [bikeId])).rows[0];
     await queueNotification(c, {
@@ -271,7 +287,7 @@ const updateSchema = z.object({
   discount: money.optional(),
   delivery_method: z.enum(['PICKUP', 'HOME_DELIVERY']).optional(),
   delivery_address: optText,
-  service_kind: z.enum(['FREE_1', 'FREE_2', 'PAID']).optional().nullable(),
+  service_kind: z.enum(VISIT_TYPES).optional().nullable(),
   pay_upfront: z.boolean().optional(),
 });
 
@@ -293,9 +309,13 @@ r.patch('/:id', async (req, res) => {
       throw new HttpError(403, 'You can only update the diagnosis');
     }
   }
-  if (d.service_kind !== undefined || d.odometer !== undefined) {
+  if (d.service_kind !== undefined || d.odometer !== undefined || d.complaint !== undefined) {
     const kind = d.service_kind !== undefined ? d.service_kind : job.service_kind;
-    await checkFreeService({ query }, kind, job.bike_id, d.odometer !== undefined ? d.odometer : job.odometer, jobId);
+    await checkVisit({ query }, kind, {
+      bikeId: job.bike_id, exceptJobId: jobId,
+      odometer: d.odometer !== undefined ? d.odometer : job.odometer,
+      complaint: d.complaint !== undefined ? d.complaint : job.complaint,
+    });
   }
   await query(
     `UPDATE job_cards SET ${keys.map((k, i) => `${k} = $${i + 1}`).join(', ')}, updated_at = now() WHERE id = $${keys.length + 1}`,
@@ -439,6 +459,21 @@ r.post('/:id/items', requirePerm('jobs.items'), async (req, res) => {
   await tx(async (c) => {
     await lockEditableJob(c, jobId, req.user);
     stockChanged = await addItems(c, jobId, items, req.user);
+    await c.query('UPDATE job_cards SET updated_at = now() WHERE id = $1', [jobId]);
+  });
+  emitJobChanged(jobId);
+  if (stockChanged) emitPartsChanged();
+  await send(res, jobId, req.user, 201);
+});
+
+// Add a kit (labour + oil/filter for this bike's model + parts) in one go
+r.post('/:id/kits', requirePerm('jobs.items'), async (req, res) => {
+  const jobId = parse(id, req.params.id);
+  const { kit_id: kitId } = parse(z.object({ kit_id: id }), req.body);
+  let stockChanged = false;
+  await tx(async (c) => {
+    await lockEditableJob(c, jobId, req.user);
+    stockChanged = await addKitToJob(c, jobId, kitId, req.user.id);
     await c.query('UPDATE job_cards SET updated_at = now() WHERE id = $1', [jobId]);
   });
   emitJobChanged(jobId);

@@ -267,3 +267,61 @@ test('refund when items are removed after payment', async () => {
 async function fetchLookup(reg) {
   return call('advisor', 'GET', `/bikes/lookup?reg=${encodeURIComponent(reg)}`);
 }
+
+test('visit types and kits: oil chart picks the right oil per model, rules per visit type', async () => {
+  const parts = ok(await call('advisor', 'GET', '/parts'));
+  const byNo = (n) => parts.find((p) => p.part_no === n);
+  // tiles for a Hornet free service: MA oil 1.2L + oil filter, labour free
+  const tiles = ok(await call('advisor', 'GET', `/kits?tiles=1&model=${encodeURIComponent('Hornet 2.0')}&visit_type=FREE_1`));
+  assert.equal(tiles.group.name, 'Bike 150–200cc');
+  const free1 = tiles.kits.find((k) => k.name === 'Free service 1 kit');
+  assert.equal(free1.price, byNo('OIL-MA-12').unit_price + byNo('FLT-OIL-001').unit_price);
+  assert.equal(free1.items[0].unit_price, 0);
+  // same kit for a Dio: scooter oil + washer
+  const dio = ok(await call('advisor', 'GET', '/kits?tiles=1&model=Dio&visit_type=FREE_1')).kits.find((k) => k.id === free1.id);
+  assert.equal(dio.price, byNo('OIL-SCT-08').unit_price + byNo('WSH-DRAIN').unit_price);
+
+  // repairs need a complaint, warranty service needs engine/chassis
+  const noComplaint = await call('advisor', 'POST', '/jobs', { customer: { name: 'K1', mobile: '0771230001' }, bike: { reg_no: 'NP KIT-0001', model: 'Dio' }, service_kind: 'MINOR' });
+  assert.equal(noComplaint.status, 400);
+  assert.match(noComplaint.data.error, /complaint/);
+  const noEngine = await call('advisor', 'POST', '/jobs', { customer: { name: 'K1', mobile: '0771230001' }, bike: { reg_no: 'NP KIT-0001', model: 'Dio' }, service_kind: 'WARRANTY', odometer: 5000 });
+  assert.equal(noEngine.status, 400);
+
+  // free service 1 with the kit on a new Dio: lines + stock
+  const oilBefore = byNo('OIL-SCT-08').stock_qty;
+  const job = ok(await call('advisor', 'POST', '/jobs', {
+    customer: { name: 'Kit Test', mobile: '0771230002' },
+    bike: { model: 'Dio', chassis_no: 'ME4JF63KIT00001', engine_no: 'JF63E-KIT0001' },
+    odometer: 700, service_kind: 'FREE_1', pay_upfront: true, kits: [free1.id],
+  }));
+  assert.deepEqual(job.items.map((i) => i.description).sort(), ['Drain Plug Washer', 'Free service 1 – labour', 'Honda Scooter Oil 10W-30 (0.8L)'].sort());
+  assert.ok(job.items.every((i) => i.kit_id === free1.id));
+  assert.equal(job.totals.total, dio.price);
+  const after = ok(await call('advisor', 'GET', '/parts')).find((p) => p.part_no === 'OIL-SCT-08');
+  assert.equal(after.stock_qty, oilBefore - 1);
+
+  // add a repair kit to an existing job
+  const brake = ok(await call('advisor', 'GET', '/kits?tiles=1&model=Dio&visit_type=MINOR')).kits.find((k) => k.name === 'Rear brake shoe replacement');
+  const withBrake = ok(await call('advisor', 'POST', `/jobs/${job.id}/kits`, { kit_id: brake.id }));
+  assert.equal(withBrake.totals.total, dio.price + brake.price);
+
+  // admin edits a kit; mechanics can't
+  assert.equal((await call('kumar', 'PUT', `/kits/${brake.id}`, { name: 'x', visit_types: ['MINOR'], lines: [{ kind: 'labour', description: 'x', unit_price: 1 }] })).status, 403);
+  const created = ok(await call('admin', 'POST', '/kits', {
+    name: 'Chain clean & lube', visit_types: ['MINOR', 'PAID'],
+    lines: [{ kind: 'labour', description: 'Chain clean & adjust', unit_price: 600 }, { kind: 'part', part_id: byNo('CLT-CBL-001').id, qty: 1 }],
+  }));
+  assert.equal(created.lines.length, 2);
+  const list = ok(await call('admin', 'GET', '/kits'));
+  assert.ok(list.find((k) => k.id === created.id).prices.every((p) => p.price === 600 + byNo('CLT-CBL-001').unit_price));
+
+  // a model that isn't in the oil chart can't use an oil kit until the admin assigns a group
+  const model = ok(await call('admin', 'POST', '/kits/models', { name: 'Test Model X' }));
+  const nogroup = ok(await call('advisor', 'GET', `/kits?tiles=1&model=${encodeURIComponent('Test Model X')}&visit_type=PAID`)).kits.find((k) => k.name === 'Periodic service');
+  assert.ok(nogroup.problems.length > 0);
+  const groups = ok(await call('admin', 'GET', '/kits/groups'));
+  ok(await call('admin', 'PUT', `/kits/models/${model.id}`, { name: 'Test Model X', group_id: groups[0].id }));
+  const fixed = ok(await call('advisor', 'GET', `/kits?tiles=1&model=${encodeURIComponent('Test Model X')}&visit_type=PAID`)).kits.find((k) => k.name === 'Periodic service');
+  assert.equal(fixed.problems.length, 0);
+});

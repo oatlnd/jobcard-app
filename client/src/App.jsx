@@ -34,6 +34,7 @@ import EnvBanner from './components/EnvBanner.jsx';
 import Cashier from './pages/Cashier.jsx';
 import ReceiptPrint from './pages/ReceiptPrint.jsx';
 import FreeServiceReport from './pages/FreeServiceReport.jsx';
+import Kits from './pages/Kits.jsx';
 
 function RequireAuth({ children, perms }) {
   const { user, ready, can } = useAuth();
@@ -95,6 +96,7 @@ export default function App() {
         <Route path="advances" element={P(['advances.manage'], <Advances />)} />
         <Route path="payroll" element={P(['payroll.view'], <Payroll />)} />
         <Route path="payroll/:id" element={P(['payroll.view'], <PayrollRun />)} />
+        <Route path="kits" element={P(['masters.manage'], <Kits />)} />
         <Route path="masters" element={P(['masters.manage'], <Masters />)} />
         <Route path="users" element={P(['users.manage'], <Users />)} />
         <Route path="settings" element={P(['settings.manage'], <Settings />)} />
