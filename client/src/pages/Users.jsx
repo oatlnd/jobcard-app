@@ -4,6 +4,10 @@ import { get, post, patch, put, del } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { ErrorBox, Field, Loading, Modal, Tabs, useAction, useLoad } from '../components/ui.jsx';
 import { fmtMobile } from '../lib.js';
+import { ask } from '../components/confirm.jsx';
+import { useSort } from '../components/sort.jsx';
+
+const USER_SORT = { name: 'name', user: 'username', role: 'role', mobile: 'mobile', status: (r) => (r.active ? 0 : 1) };
 
 export default function Users() {
   const [tab, setTab] = useState('staff');
@@ -21,6 +25,7 @@ export default function Users() {
 function Staff() {
   const users = useLoad(() => get('/users'), []);
   const roles = useLoad(() => get('/users/roles'), []);
+  const { sorted: userRows, Th } = useSort(users.data, 'users', USER_SORT);
   const [editing, setEditing] = useState(null);
   return (
     <>
@@ -31,9 +36,9 @@ function Staff() {
       {users.loading && !users.data ? <Loading /> : (
         <div className="table-wrap">
           <table className="table">
-            <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Mobile</th><th>Status</th><th /></tr></thead>
+            <thead><tr><Th k="name">Name</Th><Th k="user">Username</Th><Th k="role">Role</Th><Th k="mobile">Mobile</Th><Th k="status">Status</Th><th /></tr></thead>
             <tbody>
-              {users.data?.map((u) => (
+              {userRows.map((u) => (
                 <tr key={u.id} className={u.active ? '' : 'dim'}>
                   <td>{u.name}</td><td className="mono">{u.username}</td>
                   <td><span className="chip">{u.role}</span></td><td>{fmtMobile(u.mobile)}</td>
@@ -160,7 +165,7 @@ function Roles() {
             {draft && <button className="btn ghost" onClick={() => setDraft(null)}>Discard</button>}
             {current.id && !draft && current.user_count === 0 && (
               <button className="btn ghost danger" style={{ marginLeft: 'auto' }} disabled={act.busy}
-                onClick={() => confirm(`Delete role "${current.name}"?`) && act.run(async () => { await del(`/users/roles/${current.id}`); setSel(null); data.reload({ quiet: true }); })}>Delete role</button>
+                onClick={async () => (await ask({ title: `Delete role “${current.name}”?`, yes: 'Yes, delete' })) && act.run(async () => { await del(`/users/roles/${current.id}`); setSel(null); data.reload({ quiet: true }); })}>Delete role</button>
             )}
           </div>
         )}

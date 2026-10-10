@@ -5,6 +5,7 @@ import { ErrorBox, Loading, useAction, useLoad } from '../components/ui.jsx';
 import Attachments from '../components/Attachments.jsx';
 import { PO_STATUS } from './PurchaseOrders.jsx';
 import { fmtDate, fmtDateTime, money } from '../lib.js';
+import { ask } from '../components/confirm.jsx';
 
 export default function PurchaseOrderDetail() {
   const { id } = useParams();
@@ -14,7 +15,7 @@ export default function PurchaseOrderDetail() {
   if (po.loading && !po.data) return <Loading />;
   if (po.error && !po.data) return <div className="page"><ErrorBox error={po.error} /></div>;
   const p = po.data;
-  const setStatus = (status, msg) => (!msg || confirm(msg)) && act.run(async () => po.setData(await post(`/purchasing/purchase-orders/${id}/status`, { status })));
+  const setStatus = async (status, msg) => (!msg || (await ask({ title: msg, yes: status === 'CANCELLED' ? 'Yes, cancel PO' : 'Yes, close PO', no: 'No' }))) && act.run(async () => po.setData(await post(`/purchasing/purchase-orders/${id}/status`, { status })));
   const manage = can('purchasing.manage');
 
   return (

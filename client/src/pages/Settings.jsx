@@ -2,6 +2,10 @@ import { useEffect, useState } from 'react';
 import { get, put } from '../api.js';
 import { ErrorBox, Field, Loading, useAction, useLoad } from '../components/ui.jsx';
 
+const DEF_WORKSHOP = { open: '08:00', close: '17:00' };
+const DEF_CASHIER = { round_change_to: 50 };
+const DEF_WARRANTY = { months: 24 };
+
 export default function Settings() {
   const s = useLoad(() => get('/settings'), []);
   if (s.loading && !s.data) return <Loading />;
@@ -13,6 +17,9 @@ export default function Settings() {
         ['name', 'Shop name'], ['phone', 'Phone (shown on messages & invoices)'], ['address', 'Address', 'wide'], ['email', 'Email'], ['footer', 'Invoice footer', 'wide'],
       ]} />
       <Section title="Billing" k="billing" initial={s.data.billing} fields={[['tax_rate', 'Tax rate (%)', 'number']]} />
+      <Section title="Workshop hours (for estimated delivery)" k="workshop" initial={s.data.workshop || DEF_WORKSHOP} fields={[['open', 'Opens at (HH:MM)'], ['close', 'Closes at (HH:MM)']]} />
+      <Section title="Cashier" k="cashier" initial={s.data.cashier || DEF_CASHIER} fields={[['round_change_to', 'Round cash change down to (LKR: 1, 10, 50, 100)', 'number']]} />
+      <Section title="Warranty" k="warranty" initial={s.data.warranty || DEF_WARRANTY} fields={[['months', 'Warranty length (months from date of sale)', 'number']]} />
       <Section title="Service intervals" k="service" initial={s.data.service} fields={[
         ['interval_days', 'Next service after (days)', 'number'], ['interval_km', 'Next service after (km)', 'number'], ['reminder_days_before', 'Send reminder this many days before', 'number'],
       ]} />

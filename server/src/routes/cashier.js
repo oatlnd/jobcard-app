@@ -58,7 +58,11 @@ r.get('/today', requirePerm('payments.record'), async (req, res) => {
   );
   const byMethod = Object.fromEntries(PAYMENT_METHODS.map((m) => [m, 0]));
   for (const p of rows) byMethod[p.method] = round2(byMethod[p.method] + (p.kind === 'REFUND' ? -1 : 1) * Number(p.amount));
-  res.json({ receipts: rows, by_method: byMethod, total: round2(Object.values(byMethod).reduce((a, b) => a + b, 0)) });
+  const cashOver = round2(rows.reduce((sum, p) => sum + Number(p.cash_over || 0), 0));
+  res.json({
+    receipts: rows, by_method: byMethod, total: round2(Object.values(byMethod).reduce((a, b) => a + b, 0)),
+    cash_over: cashOver, cash_in_drawer: round2(byMethod.Cash + cashOver),
+  });
 });
 
 const paySchema = z.object({
@@ -66,6 +70,7 @@ const paySchema = z.object({
   amount: money.refine((n) => n > 0, 'must be more than 0'),
   method: z.enum(PAYMENT_METHODS),
   cash_given: money.optional().nullable(),
+  change_given: money.optional().nullable(),
   reference: optText,
 });
 

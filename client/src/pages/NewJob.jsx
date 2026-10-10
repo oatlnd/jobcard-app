@@ -5,8 +5,10 @@ import { useAuth } from '../auth.jsx';
 import { ErrorBox, Field, useAction, useLoad } from '../components/ui.jsx';
 import JobItems from '../components/JobItems.jsx';
 import { ServicePicker, PartPicker, CustomPicker } from '../components/ItemPicker.jsx';
-import { HONDA_MODELS, YEARS, fmtMobile, localToIso, fmtDate, STATUS_LABEL, money, isServiceItem, SERVICE_KIND_LABEL, SERVICE_KINDS, VISIT, isFreeService, bikeLabel } from '../lib.js';
+import { HONDA_MODELS, YEARS, fmtMobile, formatMobileInput, isValidMobileInput, fmtDate, STATUS_LABEL, money, isServiceItem, SERVICE_KIND_LABEL, SERVICE_KINDS, VISIT, isFreeService, bikeLabel } from '../lib.js';
 import { KitTiles } from '../components/KitPicker.jsx';
+import EstimateSelect from '../components/EstimateSelect.jsx';
+import { ask } from '../components/confirm.jsx';
 
 const emptyCustomer = { name: '', mobile: '', suburb: '', preferred_lang: 'ta' };
 const emptyBike = { model: '', modelOther: '', year: '', engine_no: '', chassis_no: '', sale_date: '' };
@@ -19,7 +21,7 @@ export default function NewJob() {
   const [lookup, setLookup] = useState(undefined); // undefined = not searched, null = not found
   const [customer, setCustomer] = useState(emptyCustomer);
   const [bike, setBike] = useState(emptyBike);
-  const [job, setJob] = useState({ odometer: '', complaint: '', fuel_level: '', mechanic_id: '', promised_at: '', delivery_method: 'PICKUP', delivery_address: '' });
+  const [job, setJob] = useState({ odometer: '', complaint: '', mechanic_id: '', promised_at: '', delivery_method: 'PICKUP', delivery_address: '' });
   const [items, setItems] = useState([]);
   const [kind, setKind] = useState(null);
   const [kits, setKits] = useState([]); // chosen kits: { id, name, price, items }
@@ -31,6 +33,8 @@ export default function NewJob() {
   const save = useAction();
   const users = useLoad(() => get('/users'), []);
   const models = useLoad(() => get('/kits/models'), []);
+  const settings = useLoad(() => get('/settings'), []);
+  const hours = settings.data?.workshop || {};
   const modelNames = models.data?.length ? [...models.data.map((m) => m.name), 'Other'] : HONDA_MODELS;
   const workers = (users.data || []).filter((u) => u.active && u.can_work).sort((a, b) => Number(b.is_mechanic) - Number(a.is_mechanic));
 
@@ -50,12 +54,12 @@ export default function NewJob() {
 
   const submit = (e) => {
     e.preventDefault();
+    if (lookup === null && !isValidMobileInput(customer.mobile)) { save.run(async () => { throw new Error('Enter a valid mobile number, e.g. 077 123 4567'); }); return; }
     const body = {
       complaint: job.complaint,
-      fuel_level: job.fuel_level,
       odometer: job.odometer === '' ? null : Number(job.odometer),
       mechanic_id: job.mechanic_id ? Number(job.mechanic_id) : null,
-      promised_at: localToIso(job.promised_at),
+      promised_at: job.promised_at || null,
       delivery_method: job.delivery_method,
       delivery_address: job.delivery_method === 'HOME_DELIVERY' ? job.delivery_address : null,
       items: items.map(({ _key, part_no, ...i }) => (i.item_type === 'service' ? { ...i, description: canPrice ? i.description : undefined } : i)),
@@ -135,7 +139,7 @@ export default function NewJob() {
       </form>
 
       {lookup !== undefined && !lookup?.open_job && (
-        <form onSubmit={submit}>
+        <form onSubmit={submit} className="form-compact">
           {lookup === null && (
             <div className="card">
               <h2 className="card-title">2 · Customer & bike</h2>
@@ -148,14 +152,9 @@ export default function NewJob() {
               {!unreg && <p className="small muted">Bike number: <strong>{reg}</strong></p>}
               <div className="grid2">
                 <Field label="Customer name *"><input value={customer.name} onChange={c('name')} required /></Field>
-                <Field label="Mobile number *" hint="e.g. 077 123 4567"><input value={customer.mobile} onChange={c('mobile')} inputMode="tel" required /></Field>
+                <Field label="Mobile number *"><input value={customer.mobile} onChange={(e) => setCustomer({ ...customer, mobile: formatMobileInput(e.target.value) })}
+                  inputMode="tel" placeholder="077 123 4567" required className={customer.mobile && !isValidMobileInput(customer.mobile) ? 'invalid' : ''} /></Field>
                 <Field label="Suburb"><input value={customer.suburb} onChange={c('suburb')} placeholder="e.g. Nallur" /></Field>
-                <Field label="Message language">
-                  <select value={customer.preferred_lang} onChange={c('preferred_lang')}>
-                    <option value="ta">தமிழ் (Tamil)</option>
-                    <option value="en">English</option>
-                  </select>
-                </Field>
                 <Field label="Bike model *">
                   <select value={bike.model} onChange={b('model')} required>
                     <option value="">Select model</option>
@@ -170,8 +169,8 @@ export default function NewJob() {
                     <option value="Other">Other / older</option>
                   </select>
                 </Field>
-                <Field label={`Engine no.${v.needBike ? ' *' : ''}`}><input value={bike.engine_no} onChange={b('engine_no')} required={!!v.needBike} /></Field>
-                <Field label={`Chassis no.${v.needBike || unreg ? ' *' : ''}`}><input value={bike.chassis_no} onChange={b('chassis_no')} required={!!v.needBike || unreg} /></Field>
+                <Field label="Engine no. *"><input value={bike.engine_no} onChange={b('engine_no')} required /></Field>
+                <Field label="Chassis no. *"><input value={bike.chassis_no} onChange={b('chassis_no')} required /></Field>
                 <Field label="Date of sale"><input type="date" value={bike.sale_date} onChange={b('sale_date')} /></Field>
               </div>
             </div>
@@ -213,22 +212,14 @@ export default function NewJob() {
           <div className="card">
             <h2 className="card-title">{step} · Job details</h2>
             <div className="grid2">
-              <Field label={`Customer complaint / request${v.needComplaint ? ' *' : ''}`} wide>
-                <textarea rows="2" value={job.complaint} onChange={j('complaint')} required={!!v.needComplaint} placeholder="e.g. Regular service, brake noise, starting trouble" />
-              </Field>
               <Field label={`Odometer (km)${v.needOdo ? ' *' : ''}`}><input type="number" min="0" value={job.odometer} onChange={j('odometer')} required={!!v.needOdo} /></Field>
-              <Field label="Fuel level">
-                <select value={job.fuel_level} onChange={j('fuel_level')}>
-                  <option value="">—</option><option>Empty</option><option>¼</option><option>½</option><option>¾</option><option>Full</option>
-                </select>
-              </Field>
               <Field label="Assign to">
                 <select value={job.mechanic_id} onChange={j('mechanic_id')}>
                   <option value="">Assign later</option>
                   {workers.map((m) => <option key={m.id} value={m.id}>{m.name}{m.is_mechanic ? '' : ` (${m.role})`}</option>)}
                 </select>
               </Field>
-              <Field label="Promised delivery"><input type="datetime-local" value={job.promised_at} onChange={j('promised_at')} /></Field>
+              <Field label="Estimated delivery"><EstimateSelect value={job.promised_at} hours={hours} onChange={(iso) => setJob((cur) => ({ ...cur, promised_at: iso }))} /></Field>
               <Field label="Delivery">
                 <select value={job.delivery_method} onChange={j('delivery_method')}>
                   <option value="PICKUP">Customer picks up</option>
@@ -264,7 +255,7 @@ export default function NewJob() {
             )}
             {(items.length > 0 || kits.length === 0) && <JobItems items={items} canPrice={canPrice} editable
               onChange={(it, patch) => setItems(items.map((x) => (x._key === it._key ? { ...x, ...patch } : x)))}
-              onRemove={(it) => setItems(items.filter((x) => x._key !== it._key))} />}
+              onRemove={async (it) => (await ask({ title: `Remove “${it.description}”?` })) && setItems(items.filter((x) => x._key !== it._key))} />}
             {canPrice && (items.length > 0 || kits.length > 0) && (
               <div className="totals">
                 {kits.length > 0 && <><span>Kits</span><span>{money(kitTotal)}</span></>}
@@ -274,6 +265,13 @@ export default function NewJob() {
               </div>
             )}
             <p className="small muted">You can also add or change these later on the job card.</p>
+          </div>
+
+          <div className="card">
+            <Field label={v.needComplaint ? 'Notes – what needs fixing *' : 'Notes'} wide>
+              <textarea rows="3" value={job.complaint} onChange={j('complaint')} required={!!v.needComplaint}
+                placeholder={v.needComplaint ? 'e.g. Front brake squeaking, engine knocking when cold' : 'Anything the mechanic or cashier should know'} />
+            </Field>
           </div>
 
           <ErrorBox error={save.error} />

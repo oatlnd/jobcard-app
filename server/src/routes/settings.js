@@ -30,6 +30,12 @@ const SCHEMAS = {
     on_delivered: z.boolean(),
     service_reminders: z.boolean(),
   }),
+  workshop: z.object({
+    open: z.string().regex(/^\d{2}:\d{2}$/, 'use HH:MM, e.g. 08:00'),
+    close: z.string().regex(/^\d{2}:\d{2}$/, 'use HH:MM, e.g. 17:00'),
+  }),
+  cashier: z.object({ round_change_to: z.coerce.number().int().refine((n) => [1, 5, 10, 20, 50, 100].includes(n), 'use 1, 5, 10, 20, 50 or 100') }),
+  warranty: z.object({ months: z.coerce.number().int().min(0).max(120) }),
   payroll: z.object({
     epf_employee_rate: z.coerce.number().min(0).max(30),
     epf_employer_rate: z.coerce.number().min(0).max(30),

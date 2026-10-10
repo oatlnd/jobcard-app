@@ -6,6 +6,9 @@ import { useLive } from '../socket.js';
 import { ErrorBox, Loading, useDebounced, useLoad } from '../components/ui.jsx';
 import PaymentModal from '../components/PaymentModal.jsx';
 import { STATUS_LABEL, SERVICE_KIND_SHORT, CASHIER_METHODS, bikeLabel, fmtDateTime, money, timeAgo } from '../lib.js';
+import { useSort } from '../components/sort.jsx';
+
+const RC_SORT = { no: 'receipt_no', time: 'received_at', job: 'job_no', bike: 'reg_no', method: 'method', amount: (r) => (r.kind === 'REFUND' ? -1 : 1) * Number(r.amount) };
 
 export default function Cashier() {
   const [q, setQ] = useState('');
@@ -84,6 +87,7 @@ function QueueRow({ r, onPay }) {
 
 function TodayCard({ today }) {
   const t = today.data;
+  const { sorted: rcRows, Th } = useSort(t?.receipts, 'receipts', RC_SORT);
   if (!t) return null;
   return (
     <div className="card">
@@ -93,12 +97,14 @@ function TodayCard({ today }) {
       </div>
       <div className="stats">
         {CASHIER_METHODS.map((m) => <div key={m} className="stat"><span>{m}</span><strong>{money(t.by_method[m] || 0)}</strong></div>)}
+        {t.cash_over > 0 && <div className="stat" title="Small change not given back (no coins)"><span>Rounding (cash over)</span><strong>{money(t.cash_over)}</strong></div>}
+        <div className="stat"><span>Cash in drawer</span><strong>{money(t.cash_in_drawer ?? t.by_method.Cash)}</strong></div>
       </div>
       {t.receipts.length > 0 && (
         <div className="table-wrap"><table className="table">
-          <thead><tr><th>Receipt</th><th>Time</th><th>Job</th><th>Bike</th><th>Method</th><th className="num">Amount</th><th /></tr></thead>
+          <thead><tr><Th k="no">Receipt</Th><Th k="time">Time</Th><Th k="job">Job</Th><Th k="bike">Bike</Th><Th k="method">Method</Th><Th k="amount" className="num">Amount</Th><th /></tr></thead>
           <tbody>
-            {t.receipts.map((p) => (
+            {rcRows.map((p) => (
               <tr key={p.id}>
                 <td>{p.receipt_no}{p.kind === 'REFUND' && <span className="badge s-CANCELLED" style={{ marginLeft: 6 }}>Refund</span>}</td>
                 <td>{fmtDateTime(p.received_at)}</td>

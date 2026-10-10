@@ -5,6 +5,7 @@ import { get, post } from '../api.js';
 import { ErrorBox, Field, Loading, useAction, useLoad } from '../components/ui.jsx';
 import PartSearch from '../components/PartSearch.jsx';
 import { money, todayIso } from '../lib.js';
+import { ask } from '../components/confirm.jsx';
 
 export default function GrnForm() {
   const [sp] = useSearchParams();
@@ -97,7 +98,7 @@ export default function GrnForm() {
                     <td className="num"><input type="number" min="0" step="any" className="cell-input" style={{ width: 70 }} value={l.qty_rejected} onChange={(e) => setLine(l.key, 'qty_rejected', e.target.value)} /></td>
                     <td className="num"><input type="number" min="0" step="any" className="cell-input" style={{ width: 100 }} value={l.unit_cost} onChange={(e) => setLine(l.key, 'unit_cost', e.target.value)} /></td>
                     <td className="num">{money(Number(l.qty_received) * Number(l.unit_cost))}</td>
-                    {!poId && <td className="num"><button type="button" className="icon-btn" onClick={() => setLines(lines.filter((x2) => x2.key !== l.key))}>×</button></td>}
+                    {!poId && <td className="num"><button type="button" className="icon-btn" onClick={async () => (await ask({ title: `Remove “${l.description || 'this line'}”?` })) && setLines(lines.filter((x2) => x2.key !== l.key))}>×</button></td>}
                   </tr>
                 ))}
               </tbody>

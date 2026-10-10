@@ -5,12 +5,17 @@ import { get, post, patch, downloadCsv } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { ErrorBox, Field, Loading, Empty, Modal, Tabs, useAction, useLoad } from '../components/ui.jsx';
 import { fmtDate, fmtDateTime, fmtPeriod, money, num, thisPeriod } from '../lib.js';
+import { ask } from '../components/confirm.jsx';
+import { useSort } from '../components/sort.jsx';
 
 const TYPE = { MID_MONTH: 'Mid-month advance', MONTH_END: 'Month-end salary' };
+
+const RUN_SORT = { run: 'run_no', period: 'period', type: 'run_type', staff: (r) => Number(r.employees), net: (r) => Number(r.total_net), epf: (r) => Number(r.total_epf), etf: (r) => Number(r.total_etf), status: 'status' };
 
 export default function Payroll() {
   const { can } = useAuth();
   const runs = useLoad(() => get('/payroll/runs'), []);
+  const { sorted: runRows, Th } = useSort(runs.data, 'payroll', RUN_SORT);
   const [creating, setCreating] = useState(false);
   return (
     <div className="page">
@@ -22,9 +27,9 @@ export default function Payroll() {
       {runs.loading && !runs.data ? <Loading /> : runs.data?.length === 0 ? <Empty>No payroll runs yet. Mark attendance first, then create a run.</Empty> : (
         <div className="table-wrap">
           <table className="table">
-            <thead><tr><th>Run</th><th>Period</th><th>Type</th><th className="num">Staff</th><th className="num">Net pay</th><th className="num">EPF (20%)</th><th className="num">ETF (3%)</th><th>Status</th></tr></thead>
+            <thead><tr><Th k="run">Run</Th><Th k="period">Period</Th><Th k="type">Type</Th><Th k="staff" className="num">Staff</Th><Th k="net" className="num">Net pay</Th><Th k="epf" className="num">EPF (20%)</Th><Th k="etf" className="num">ETF (3%)</Th><Th k="status">Status</Th></tr></thead>
             <tbody>
-              {runs.data?.map((r) => (
+              {runRows.map((r) => (
                 <tr key={r.id} className={r.status === 'CANCELLED' ? 'dim' : ''}>
                   <td><Link to={`/payroll/${r.id}`}><strong>{r.run_no}</strong></Link></td>
                   <td>{fmtPeriod(r.period)}</td>
@@ -111,10 +116,10 @@ export function PayrollRun() {
           {!mid && <a className="btn ghost" href={`/print/payslips/${r.id}`} target="_blank" rel="noreferrer">🖨 Payslips</a>}
           <button className="btn ghost" onClick={exportSheet}>Export sheet</button>
           {draft && <button className="btn ghost" disabled={act.busy} onClick={() => act.run(async () => run.setData(await post(`/payroll/runs/${id}/recalculate`)))}>Recalculate</button>}
-          {draft && <button className="btn ghost danger" disabled={act.busy} onClick={() => confirm('Cancel this payroll run?') && act.run(async () => run.setData(await post(`/payroll/runs/${id}/cancel`)))}>Cancel run</button>}
-          {draft && <button className="btn primary" disabled={act.busy} onClick={() => confirm(mid
-            ? 'Finalise? Each amount will be recorded as a salary advance and deducted at month-end.'
-            : 'Finalise? Advances will be marked as deducted and attendance for this month will be locked.') && act.run(async () => run.setData(await post(`/payroll/runs/${id}/finalize`)))}>Finalise</button>}
+          {draft && <button className="btn ghost danger" disabled={act.busy} onClick={async () => (await ask({ title: 'Cancel this payroll run?', yes: 'Yes, cancel run', no: 'No' })) && act.run(async () => run.setData(await post(`/payroll/runs/${id}/cancel`)))}>Cancel run</button>}
+          {draft && <button className="btn primary" disabled={act.busy} onClick={async () => (await ask({ title: 'Finalise this payroll run?', danger: false, yes: 'Yes, finalise', no: 'Not yet', message: mid
+            ? 'Each amount will be recorded as a salary advance and deducted at month-end.'
+            : 'Advances will be marked as deducted and attendance for this month will be locked.' })) && act.run(async () => run.setData(await post(`/payroll/runs/${id}/finalize`)))}>Finalise</button>}
         </div>
       </div>
       <ErrorBox error={act.error} />

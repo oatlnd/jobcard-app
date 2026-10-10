@@ -31,6 +31,7 @@ import Advances from './pages/Advances.jsx';
 import Payroll, { PayrollRun, PayslipPrint } from './pages/Payroll.jsx';
 import PublicStatus from './pages/PublicStatus.jsx';
 import EnvBanner from './components/EnvBanner.jsx';
+import { ConfirmHost } from './components/confirm.jsx';
 import Cashier from './pages/Cashier.jsx';
 import ReceiptPrint from './pages/ReceiptPrint.jsx';
 import FreeServiceReport from './pages/FreeServiceReport.jsx';
@@ -60,6 +61,7 @@ export default function App() {
   return (
     <>
     <EnvBanner />
+    <ConfirmHost />
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/status" element={<PublicStatus />} />

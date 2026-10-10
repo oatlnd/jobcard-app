@@ -604,3 +604,27 @@ a.chip.chip-on, .chip.chip-on { background: var(--red); border-color: var(--red)
 .chip-check { padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: #fff; font-size: .85rem; }
 .field-label { font-size: .82rem; font-weight: 600; color: var(--ink-2); margin: 4px 0 6px; }
 .kits-layout select, .card .table select { min-width: 200px; }
+
+/* ===== v5: confirm pop-up, sortable tables, compact job form ===== */
+.confirm-backdrop { z-index: 200; }
+.confirm-modal { max-width: 420px; }
+.confirm-title { margin: 0 0 6px; font-size: 1.1rem; }
+.confirm-msg { margin: 0 0 6px; color: var(--ink-2); }
+th.sortable { cursor: pointer; user-select: none; }
+th.sortable:hover { color: var(--ink); }
+th.sorted { color: var(--red); }
+.sort-ind { font-size: .7rem; opacity: .55; }
+th.sorted .sort-ind { opacity: 1; }
+.change-input { width: 140px; font-size: 1.3rem; font-weight: 800; padding: 6px 10px; text-align: right; }
+input.invalid { border-color: #e5484d !important; background: #fff5f5; }
+.estimate { display: flex; flex-direction: column; gap: 6px; }
+.estimate-when { font-size: .85rem; color: var(--ok); }
+/* Job card form: label and field on one line on wider screens */
+@media (min-width: 720px) {
+  .form-compact .field { display: grid; grid-template-columns: 130px minmax(0, 1fr); align-items: center; column-gap: 10px; }
+  .form-compact .field > .field-label { margin: 0; }
+  .form-compact .field > .field-hint { grid-column: 2; }
+  .form-compact .field.wide { grid-template-columns: 130px minmax(0, 1fr); align-items: start; }
+  .form-compact .field.wide > .field-label { padding-top: 8px; }
+  .form-compact .grid2 { row-gap: 10px; }
+}

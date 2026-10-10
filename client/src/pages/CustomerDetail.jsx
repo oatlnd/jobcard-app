@@ -3,7 +3,10 @@ import { Link, useParams } from 'react-router-dom';
 import { get, patch, post } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { DeliveryBadge, ErrorBox, Field, Loading, Modal, StatusBadge, useAction, useLoad } from '../components/ui.jsx';
-import { fmtMobile, fmtReg, fmtDate, fmtDateTime, money, HONDA_MODELS, YEARS } from '../lib.js';
+import { fmtMobile, formatMobileInput, fmtReg, fmtDate, fmtDateTime, money, HONDA_MODELS, YEARS } from '../lib.js';
+import { useSort } from '../components/sort.jsx';
+
+const CJ_SORT = { job: 'job_no', bike: 'reg_no', services: 'services', status: 'status', opened: 'created_at', total: (r) => (r.total == null ? null : Number(r.total)) };
 
 export default function CustomerDetail() {
   const { id } = useParams();
@@ -12,6 +15,7 @@ export default function CustomerDetail() {
   const [addBike, setAddBike] = useState(false);
   const [editBike, setEditBike] = useState(null);
   const { can } = useAuth();
+  const { sorted: cjRows, Th } = useSort(c.data?.jobs, 'custjobs', CJ_SORT, ['opened', 'desc']);
   if (c.loading && !c.data) return <Loading />;
   if (c.error && !c.data) return <div className="page"><ErrorBox error={c.error} /></div>;
   const d = c.data;
@@ -56,9 +60,9 @@ export default function CustomerDetail() {
         {d.jobs.length === 0 ? <p className="muted">No job cards yet.</p> : (
           <div className="table-wrap">
             <table className="table compact">
-              <thead><tr><th>Job</th><th>Bike</th><th>Services</th><th>Status</th><th>Opened</th><th className="num">Invoice</th></tr></thead>
+              <thead><tr><Th k="job">Job</Th><Th k="bike">Bike</Th><Th k="services">Services</Th><Th k="status">Status</Th><Th k="opened">Opened</Th><Th k="total" className="num">Invoice</Th></tr></thead>
               <tbody>
-                {d.jobs.map((j) => (
+                {cjRows.map((j) => (
                   <tr key={j.id}>
                     <td><Link to={`/jobs/${j.id}`}>{j.job_no}</Link></td><td>{fmtReg(j.reg_no)}</td><td className="small">{j.services || '—'}</td>
                     <td><StatusBadge status={j.status} /> <DeliveryBadge status={j.delivery_status} /></td><td className="small">{fmtDateTime(j.created_at)}</td>
@@ -88,7 +92,7 @@ function EditCustomer({ d, onClose, onSaved }) {
       <ErrorBox error={error} />
       <div className="grid2">
         <Field label="Name"><input value={f.name} onChange={s('name')} /></Field>
-        <Field label="Mobile"><input value={f.mobile} onChange={s('mobile')} /></Field>
+        <Field label="Mobile"><input value={f.mobile} inputMode="tel" placeholder="077 123 4567" onChange={(e) => setF({ ...f, mobile: formatMobileInput(e.target.value) })} /></Field>
         <Field label="Suburb"><input value={f.suburb} onChange={s('suburb')} /></Field>
         <Field label="Email"><input value={f.email} onChange={s('email')} /></Field>
         <Field label="Message language">
@@ -131,14 +135,14 @@ function EditBike({ bike, onClose, onSaved }) {
 }
 
 function AddBike({ customerId, onClose, onSaved }) {
-  const [f, setF] = useState({ reg_no: '', model: '', year: '' });
+  const [f, setF] = useState({ reg_no: '', model: '', year: '', engine_no: '', chassis_no: '' });
   const { busy, error, run } = useAction();
   const s = (k) => (e) => setF({ ...f, [k]: e.target.value });
   return (
     <Modal title="Add bike" onClose={onClose}
       footer={<><button className="btn ghost" onClick={onClose}>Cancel</button>
         <button className="btn primary" disabled={busy} onClick={() => run(async () => {
-          await post('/bikes', { customer_id: customerId, reg_no: f.reg_no, model: f.model, year: f.year && f.year !== 'Other' ? Number(f.year) : null });
+          await post('/bikes', { customer_id: customerId, reg_no: f.reg_no, model: f.model, year: f.year && f.year !== 'Other' ? Number(f.year) : null, engine_no: f.engine_no, chassis_no: f.chassis_no });
           onSaved();
         })}>Add</button></>}>
       <ErrorBox error={error} />
@@ -150,6 +154,8 @@ function AddBike({ customerId, onClose, onSaved }) {
         <Field label="Year">
           <select value={f.year} onChange={s('year')}><option value="">Select</option>{YEARS.map((y) => <option key={y}>{y}</option>)}<option>Other</option></select>
         </Field>
+        <Field label="Engine no. *"><input value={f.engine_no} onChange={s('engine_no')} /></Field>
+        <Field label="Chassis no. *"><input value={f.chassis_no} onChange={s('chassis_no')} /></Field>
       </div>
     </Modal>
   );

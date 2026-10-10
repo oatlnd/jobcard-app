@@ -9,6 +9,12 @@ import {
   STATUSES, STATUS_LABEL, DELIVERY_STATUSES, DELIVERY_LABEL, allowedStatuses, allowedDelivery, actionLabel, DELIVERY_ACTION,
   fmtReg, fmtMobile, fmtDateTime, money, timeAgo,
 } from '../lib.js';
+import { useSort } from '../components/sort.jsx';
+
+const JOB_SORT = {
+  job: 'created_at', bike: 'reg_no', customer: 'customer_name', services: 'services', assigned: 'mechanic_name',
+  status: 'status', delivery: 'delivery_status', amount: (r) => Number(r.items_total),
+};
 
 export default function Jobs() {
   const { can } = useAuth();
@@ -20,6 +26,7 @@ export default function Jobs() {
   const dq = useDebounced(q);
   const list = useLoad(() => get('/jobs', { q: dq, status, delivery, mechanic_id: mechanic, open: openOnly ? '1' : undefined }), [dq, status, delivery, mechanic, openOnly]);
   const users = useLoad(() => get('/users'), []);
+  const { sorted: jobRows, Th } = useSort(list.data, 'jobs', JOB_SORT);
   const act = useAction();
   const [flash, setFlash] = useState(null);
 
@@ -84,12 +91,12 @@ export default function Jobs() {
           <table className="table job-list">
             <thead>
               <tr>
-                <th>Job</th><th>Bike</th><th>Customer</th><th>Services / parts</th><th>Assigned</th>
-                <th>Job status</th><th>Delivery</th>{showMoney && <th className="num">Amount</th>}
+                <Th k="job">Job</Th><Th k="bike">Bike</Th><Th k="customer">Customer</Th><Th k="services">Services / parts</Th><Th k="assigned">Assigned</Th>
+                <Th k="status">Job status</Th><Th k="delivery">Delivery</Th>{showMoney && <Th k="amount" className="num">Amount</Th>}
               </tr>
             </thead>
             <tbody>
-              {list.data?.map((j) => {
+              {jobRows.map((j) => {
                 const nextS = allowedStatuses(j, can);
                 const nextD = allowedDelivery(j, can);
                 const late = j.promised_at && new Date(j.promised_at) < new Date() && !['COMPLETED', 'CANCELLED'].includes(j.status);

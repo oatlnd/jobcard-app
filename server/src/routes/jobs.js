@@ -14,7 +14,7 @@ import { VISIT_TYPES, addKitToJob } from '../lib/kits.js';
 import { round2 } from '../lib/util.js';
 import { queueNotification, statusUrl, fmtMoney, getSettings } from '../lib/notify.js';
 import { emitJobChanged, emitPartsChanged } from '../realtime.js';
-import { customerSchema, bikeSchema, bikeRegNo } from './customers.js';
+import { customerSchema, bikeSchema, bikeRegNo, requireBikeIds } from './customers.js';
 
 const r = Router();
 r.use(requirePerm('jobs.view'));
@@ -226,6 +226,7 @@ r.post('/', requirePerm('jobs.create'), async (req, res) => {
           [d.customer.name, d.customer.mobile, d.customer.suburb, d.customer.email, d.customer.preferred_lang, d.customer.notes],
         )).rows[0];
       }
+      requireBikeIds(d.bike);
       const regNo = bikeRegNo(d.bike);
       if ((await c.query('SELECT 1 FROM bikes WHERE reg_no = $1', [regNo])).rows[0]) {
         throw new HttpError(409, `Bike ${regNo} is already registered. Search for it instead.`);

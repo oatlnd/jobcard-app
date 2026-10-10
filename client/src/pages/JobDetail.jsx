@@ -10,11 +10,13 @@ import PrintMenu from '../components/PrintMenu.jsx';
 import { ServicePicker, PartPicker, CustomPicker } from '../components/ItemPicker.jsx';
 import PaymentModal from '../components/PaymentModal.jsx';
 import KitPicker from '../components/KitPicker.jsx';
+import EstimateSelect from '../components/EstimateSelect.jsx';
 import {
   STATUS_LABEL, DELIVERY_LABEL, DELIVERY_ACTION, allowedStatuses, allowedDelivery, actionLabel,
   fmtMobile, fmtDateTime, fmtDate, money, isoToLocal, localToIso,
-  SERVICE_KIND_LABEL, SERVICE_KIND_SHORT, SERVICE_KINDS, PAY_STATE_LABEL, isFreeService, bikeLabel,
+  SERVICE_KIND_LABEL, SERVICE_KIND_SHORT, fmtReady, SERVICE_KINDS, PAY_STATE_LABEL, isFreeService, bikeLabel,
 } from '../lib.js';
+import { ask } from '../components/confirm.jsx';
 
 export default function JobDetail() {
   const { id } = useParams();
@@ -196,11 +198,13 @@ function DetailsCard({ j, closed, onSave, busy }) {
   const [edit, setEdit] = useState(false);
   const [f, setF] = useState({});
   const users = useLoad(() => (full ? get('/users') : Promise.resolve([])), [full]);
+  const settingsQ = useLoad(() => (full ? get('/settings') : Promise.resolve({})), [full]);
+  const hours = settingsQ.data?.workshop || {};
   const workers = (users.data || []).filter((u) => u.can_work && u.active);
 
   useEffect(() => {
     setF({
-      complaint: j.complaint || '', diagnosis: j.diagnosis || '', odometer: j.odometer ?? '', fuel_level: j.fuel_level || '',
+      complaint: j.complaint || '', diagnosis: j.diagnosis || '', odometer: j.odometer ?? '',
       mechanic_id: j.mechanic_id || '', promised_at: isoToLocal(j.promised_at), delivery_method: j.delivery_method, delivery_address: j.delivery_address || '',
       service_kind: j.service_kind || '', pay_upfront: !!j.pay_upfront,
     });
@@ -208,7 +212,7 @@ function DetailsCard({ j, closed, onSave, busy }) {
 
   const save = async () => {
     const body = full
-      ? { complaint: f.complaint, diagnosis: f.diagnosis, odometer: f.odometer === '' ? null : Number(f.odometer), fuel_level: f.fuel_level,
+      ? { complaint: f.complaint, diagnosis: f.diagnosis, odometer: f.odometer === '' ? null : Number(f.odometer),
           mechanic_id: f.mechanic_id ? Number(f.mechanic_id) : null, promised_at: localToIso(f.promised_at),
           delivery_method: f.delivery_method, delivery_address: f.delivery_address,
           service_kind: f.service_kind || null, pay_upfront: f.pay_upfront }
@@ -226,12 +230,11 @@ function DetailsCard({ j, closed, onSave, busy }) {
       </div>
       {!edit ? (
         <div className="kv">
-          <span>Complaint</span><span className="pre">{j.complaint || '—'}</span>
+          <span>Notes</span><span className="pre">{j.complaint || '—'}</span>
           <span>Diagnosis</span><span className="pre">{j.diagnosis || '—'}</span>
           <span>Assigned to</span><span>{j.mechanic_name || <em className="muted">Unassigned</em>}</span>
           <span>Odometer</span><span>{j.odometer != null ? `${j.odometer.toLocaleString()} km` : '—'}</span>
-          <span>Fuel</span><span>{j.fuel_level || '—'}</span>
-          <span>Promised</span><span>{fmtDateTime(j.promised_at)}</span>
+          <span>Est. delivery</span><span>{j.promised_at ? fmtReady(j.promised_at) : '—'}</span>
           <span>Delivery</span><span>{j.delivery_method === 'HOME_DELIVERY' ? `Home delivery${j.delivery_address ? ` – ${j.delivery_address}` : ''}` : 'Customer picks up'}</span>
           {j.delivered_to && <><span>Handed to</span><span>{j.delivered_to} · {fmtDateTime(j.delivered_at)}</span></>}
           <span>Advisor</span><span>{j.advisor_name || '—'}</span>
@@ -241,7 +244,7 @@ function DetailsCard({ j, closed, onSave, busy }) {
         </div>
       ) : (
         <div className="grid2">
-          {full && <Field label="Complaint" wide><textarea rows="2" value={f.complaint} onChange={s('complaint')} /></Field>}
+          {full && <Field label="Notes" wide><textarea rows="2" value={f.complaint} onChange={s('complaint')} /></Field>}
           <Field label="Diagnosis / work done" wide><textarea rows="3" value={f.diagnosis} onChange={s('diagnosis')} /></Field>
           {full && <>
             <Field label="Assigned to">
@@ -250,9 +253,8 @@ function DetailsCard({ j, closed, onSave, busy }) {
                 {workers.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
               </select>
             </Field>
-            <Field label="Promised delivery"><input type="datetime-local" value={f.promised_at} onChange={s('promised_at')} /></Field>
+            <Field label="Estimated delivery"><EstimateSelect value={f.promised_at ? localToIso(f.promised_at) : ''} hours={hours} onChange={(iso) => setF((cur) => ({ ...cur, promised_at: iso ? isoToLocal(iso) : '' }))} /></Field>
             <Field label="Odometer (km)"><input type="number" min="0" value={f.odometer} onChange={s('odometer')} /></Field>
-            <Field label="Fuel level"><input value={f.fuel_level} onChange={s('fuel_level')} /></Field>
             <Field label="Delivery">
               <select value={f.delivery_method} onChange={s('delivery_method')}>
                 <option value="PICKUP">Customer picks up</option><option value="HOME_DELIVERY">Home delivery</option>
@@ -301,7 +303,7 @@ function ItemsCard({ j, canPrice, showMoney, canEdit, doAction, busy }) {
       {isFreeService(j.service_kind) && !j.items.some((i) => i.kit_id && Number(i.unit_price) === 0 && i.item_type === 'custom_service') && <div className="free-line">{SERVICE_KIND_LABEL[j.service_kind]} – labour <strong>FREE</strong> <span className="muted small">(Honda)</span></div>}
       <JobItems items={j.items} canPrice={showMoney} editable={canEdit} busy={busy}
         onChange={(it, body) => doAction(() => patch(`/jobs/${j.id}/items/${it.id}`, body))}
-        onRemove={(it) => confirm(`Remove ${it.description}?`) && doAction(() => del(`/jobs/${j.id}/items/${it.id}`))} />
+        onRemove={async (it) => (await ask({ title: `Remove “${it.description}” from this job card?`, message: it.part_id ? 'The part goes back into stock.' : '' })) && doAction(() => del(`/jobs/${j.id}/items/${it.id}`))} />
       {showMoney && t && (
         <div className="totals">
           <span>Services</span><span>{money(t.services_total)}</span>
@@ -379,7 +381,7 @@ function PaymentCard({ j, doAction, busy, onPay, reload }) {
         {canCreate && <button className="btn" disabled={busy || (!j.items.length && !isFreeService(j.service_kind))} onClick={() => doAction(() => post(`/jobs/${j.id}/invoice`))}>Create invoice</button>}
         {inv && j.delivery_status !== 'DELIVERED' && can('invoices.manage') && (
           <button className="btn ghost danger" disabled={busy}
-            onClick={() => confirm('Cancel this invoice so items can be changed? Payments stay on the job card.') && doAction(() => del(`/invoices/${inv.id}`)).then(reload)}>Cancel invoice</button>
+            onClick={async () => (await ask({ title: `Cancel invoice ${inv.invoice_no}?`, message: 'Items can then be changed. Payments stay on the job card.', yes: 'Yes, cancel invoice', no: 'No' })) && doAction(() => del(`/invoices/${inv.id}`)).then(reload)}>Cancel invoice</button>
         )}
       </div>
       {!inv && !j.pay_upfront && !canCreate && j.status !== 'CANCELLED' && <p className="small muted">The invoice can be created once the job is in QA or completed.</p>}

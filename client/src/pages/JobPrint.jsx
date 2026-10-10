@@ -96,12 +96,12 @@ function A4({ j, shop, inv, doc, t, showPrices, title }) {
 
       {doc === 'jobcard' && (
         <section className="paper-block">
-          <b>Customer complaint</b><p>{j.complaint || '—'}</p>
+          <b>Notes</b><p>{j.complaint || '—'}</p>
           <b>Diagnosis / work done</b><p>{j.diagnosis || ' '}</p>
           <div className="paper-meta three">
             <div>Mechanic: {j.mechanic_name || '________________'}</div>
-            <div>Fuel: {j.fuel_level || '____'}</div>
-            <div>Promised: {j.promised_at ? fmtDateTime(j.promised_at) : '________'}</div>
+            <div>Odometer: {j.odometer != null ? `${j.odometer.toLocaleString()} km` : '______'}</div>
+            <div>Est. delivery: {j.promised_at ? fmtDateTime(j.promised_at) : '________'}</div>
           </div>
         </section>
       )}
@@ -170,8 +170,8 @@ function Thermal({ j, shop, inv, doc, t, showPrices, title }) {
       {isFreeService(j.service_kind) && <div className="r-row"><span>Chassis</span><span>{j.bike.chassis_no}</span></div>}
       {doc === 'jobcard' && <>
         <div className="r-row"><span>Mechanic</span><span>{j.mechanic_name || '-'}</span></div>
-        {j.promised_at && <div className="r-row"><span>Promised</span><span>{fmtDateTime(j.promised_at)}</span></div>}
-        {j.complaint && <div className="r-note">Complaint: {j.complaint}</div>}
+        {j.promised_at && <div className="r-row"><span>Est. delivery</span><span>{fmtDateTime(j.promised_at)}</span></div>}
+        {j.complaint && <div className="r-note">Notes: {j.complaint}</div>}
       </>}
       <div className="r-rule" />
       {j.items.map((it) => (
@@ -238,9 +238,9 @@ function DotMatrix({ j, shop, inv, doc, t, showPrices, title }) {
   L.push(pad(`Job No   : ${j.job_no}`, 44) + pad(`Odometer: ${j.odometer != null ? j.odometer.toLocaleString() + ' km' : '-'}`, 36));
   L.push(pad(`Status   : ${STATUS_LABEL[j.status]}`, 44) + pad(`Delivery: ${DELIVERY_LABEL[j.delivery_status]}`, 36));
   if (doc === 'jobcard') {
-    L.push(pad(`Mechanic : ${j.mechanic_name || '________________'}`, 44) + pad(`Promised: ${j.promised_at ? fmtDateTime(j.promised_at) : '________'}`, 36));
+    L.push(pad(`Mechanic : ${j.mechanic_name || '________________'}`, 44) + pad(`Est. del: ${j.promised_at ? fmtDateTime(j.promised_at) : '________'}`, 36));
     L.push(rule());
-    wrap(`Complaint: ${j.complaint || '-'}`, W).forEach((l) => L.push(l));
+    wrap(`Notes: ${j.complaint || '-'}`, W).forEach((l) => L.push(l));
     wrap(`Diagnosis: ${j.diagnosis || '_'.repeat(60)}`, W).forEach((l) => L.push(l));
   }
   L.push(rule());

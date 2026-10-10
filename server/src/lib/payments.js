@@ -76,6 +76,7 @@ export async function recordPayment(c, jobId, d, userId) {
   const amount = round2(d.amount);
   let cashGiven = null;
   let change = null;
+  let cashOver = 0;
   if (d.kind === 'REFUND') {
     if (amount > round2(-balance) + 0.005) throw new HttpError(400, `Refund can't be more than LKR ${round2(Math.max(-balance, 0)).toFixed(2)}`);
   } else {
@@ -84,14 +85,23 @@ export async function recordPayment(c, jobId, d, userId) {
     if (d.method === 'Cash' && d.cash_given != null && d.cash_given !== '') {
       cashGiven = round2(d.cash_given);
       if (cashGiven + 0.005 < amount) throw new HttpError(400, 'Cash given is less than the amount being paid');
-      change = round2(cashGiven - amount);
+      const exact = round2(cashGiven - amount);
+      if (d.change_given != null && d.change_given !== '') {
+        change = round2(d.change_given);
+        if (change < 0 || change > exact + 0.005) throw new HttpError(400, `Change given must be between 0 and LKR ${exact.toFixed(2)}`);
+      } else {
+        // No small coins: round the change DOWN (e.g. to LKR 50). The few rupees kept are recorded as cash over.
+        const step = Number((await getSettings(c)).cashier?.round_change_to) || 1;
+        change = Math.floor(exact / step + 1e-9) * step;
+      }
+      cashOver = round2(exact - change);
     }
   }
   const { rows } = await c.query(
-    `INSERT INTO job_payments (receipt_no, job_card_id, kind, amount, method, cash_given, change_given, reference, received_by)
-     VALUES ('RC' || to_char(now(), 'YY') || '-' || lpad(nextval('receipt_no_seq')::text, 5, '0'), $1,$2,$3,$4,$5,$6,$7,$8)
+    `INSERT INTO job_payments (receipt_no, job_card_id, kind, amount, method, cash_given, change_given, cash_over, reference, received_by)
+     VALUES ('RC' || to_char(now(), 'YY') || '-' || lpad(nextval('receipt_no_seq')::text, 5, '0'), $1,$2,$3,$4,$5,$6,$7,$8,$9)
      RETURNING *`,
-    [jobId, d.kind || 'PAYMENT', amount, d.method, cashGiven, change, d.reference || null, userId],
+    [jobId, d.kind || 'PAYMENT', amount, d.method, cashGiven, change, cashOver, d.reference || null, userId],
   );
   await syncInvoice(c, jobId);
   await c.query('UPDATE job_cards SET updated_at = now() WHERE id = $1', [jobId]);

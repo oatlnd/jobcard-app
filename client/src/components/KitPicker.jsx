@@ -5,6 +5,7 @@ import { get } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { ErrorBox, Modal, useLoad } from './ui.jsx';
 import { money } from '../lib.js';
+import { ask } from './confirm.jsx';
 
 export function KitTiles({ model, visitType, chosen = [], onToggle, busy }) {
   const { can } = useAuth();
@@ -47,7 +48,7 @@ export default function KitPicker({ job, onClose, onAdd, busy }) {
       <KitTiles model={job.bike.model} visitType={job.service_kind || ''} busy={busy} chosen={added}
         onToggle={async (k) => {
           setErr(null);
-          if (added.includes(k.id) && !confirm(`${k.name} is already on this job card. Add it again?`)) return;
+          if (added.includes(k.id) && !(await ask({ title: `${k.name} is already on this job card. Add it again?`, yes: 'Yes, add again', no: 'No', danger: false }))) return;
           try { await onAdd(k); } catch (e) { setErr(e); }
         }} />
       <ErrorBox error={err} />

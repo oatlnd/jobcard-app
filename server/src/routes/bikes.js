@@ -3,7 +3,7 @@ import { query } from '../db.js';
 import { requirePerm } from '../auth.js';
 import { HttpError, normalizeRegNo } from '../lib/util.js';
 import { parse, z, id } from '../lib/validate.js';
-import { bikeSchema, bikeRegNo } from './customers.js';
+import { bikeSchema, bikeRegNo, requireBikeIds } from './customers.js';
 
 const r = Router();
 
@@ -48,7 +48,7 @@ r.post('/', requirePerm('customers.manage'), async (req, res) => {
   const { rows } = await query(
     `INSERT INTO bikes (customer_id, reg_no, model, year, engine_no, chassis_no, last_odometer, sale_date)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-    [d.customer_id, bikeRegNo(d), d.model, d.year, d.engine_no, d.chassis_no, d.last_odometer, d.sale_date],
+    [d.customer_id, (requireBikeIds(d), bikeRegNo(d)), d.model, d.year, d.engine_no, d.chassis_no, d.last_odometer, d.sale_date],
   );
   res.status(201).json(rows[0]);
 });

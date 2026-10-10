@@ -40,6 +40,11 @@ export const bikeSchema = z.object({
   sale_date: dateField,
 });
 
+/** Every bike added for the first time needs its engine and chassis numbers. */
+export function requireBikeIds(b) {
+  if (!b.engine_no || !b.chassis_no) throw new HttpError(400, 'Enter the engine number and chassis number for a new bike');
+}
+
 /** Registration number to store. Bikes without a number plate yet get "UNREG" + the end of the chassis number. */
 export function bikeRegNo(b) {
   if (b.reg_no) return b.reg_no;
@@ -109,7 +114,7 @@ r.post('/', requirePerm('customers.manage'), async (req, res) => {
       const b = await c.query(
         `INSERT INTO bikes (customer_id, reg_no, model, year, engine_no, chassis_no, last_odometer, sale_date)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-        [customer.id, bikeRegNo(d.bike), d.bike.model, d.bike.year, d.bike.engine_no, d.bike.chassis_no, d.bike.last_odometer, d.bike.sale_date],
+        [customer.id, (requireBikeIds(d.bike), bikeRegNo(d.bike)), d.bike.model, d.bike.year, d.bike.engine_no, d.bike.chassis_no, d.bike.last_odometer, d.bike.sale_date],
       );
       bike = b.rows[0];
     }

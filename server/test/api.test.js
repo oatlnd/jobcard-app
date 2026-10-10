@@ -28,7 +28,7 @@ test('job card with multiple services, parts and custom lines', async () => {
   const svc = st.filter((s) => ['Periodic Service', 'Oil Change'].includes(s.name));
   const job = ok(await call('advisor', 'POST', '/jobs', {
     customer: { name: 'API Test', mobile: '0771112222', preferred_lang: 'en' },
-    bike: { reg_no: 'NP ZZZ-0001', model: 'Dio', year: 2020 },
+    bike: { reg_no: 'NP ZZZ-0001', model: 'Dio', year: 2020, engine_no: 'JF-T0001', chassis_no: 'ME-T0001' },
     odometer: 12000,
     items: [
       ...svc.map((s) => ({ item_type: 'service', service_type_id: s.id })),
@@ -249,7 +249,7 @@ test('walk-in free service: advisor lodges, cashier takes payment, work starts, 
 
 test('refund when items are removed after payment', async () => {
   const job = ok(await call('advisor', 'POST', '/jobs', {
-    customer: { name: 'Refund Test', mobile: '0775556666' }, bike: { reg_no: 'NP ZZZ-0099', model: 'Dio' },
+    customer: { name: 'Refund Test', mobile: '0775556666' }, bike: { reg_no: 'NP ZZZ-0099', model: 'Dio', engine_no: 'JF-T0099', chassis_no: 'ME-T0099' },
     service_kind: 'PAID', pay_upfront: true,
     items: [{ item_type: 'custom_service', description: 'Service', unit_price: 3000 }, { item_type: 'custom_part', description: 'Oil', unit_price: 2000 }],
   }));
@@ -282,10 +282,10 @@ test('visit types and kits: oil chart picks the right oil per model, rules per v
   assert.equal(dio.price, byNo('OIL-SCT-08').unit_price + byNo('WSH-DRAIN').unit_price);
 
   // repairs need a complaint, warranty service needs engine/chassis
-  const noComplaint = await call('advisor', 'POST', '/jobs', { customer: { name: 'K1', mobile: '0771230001' }, bike: { reg_no: 'NP KIT-0001', model: 'Dio' }, service_kind: 'MINOR' });
+  const noComplaint = await call('advisor', 'POST', '/jobs', { customer: { name: 'K1', mobile: '0771230001' }, bike: { reg_no: 'NP KIT-0001', model: 'Dio', engine_no: 'JF-K1', chassis_no: 'ME-K1' }, service_kind: 'MINOR' });
   assert.equal(noComplaint.status, 400);
   assert.match(noComplaint.data.error, /complaint/);
-  const noEngine = await call('advisor', 'POST', '/jobs', { customer: { name: 'K1', mobile: '0771230001' }, bike: { reg_no: 'NP KIT-0001', model: 'Dio' }, service_kind: 'WARRANTY', odometer: 5000 });
+  const noEngine = await call('advisor', 'POST', '/jobs', { customer: { name: 'K1', mobile: '0771230001' }, bike: { reg_no: 'NP KIT-0001', model: 'Dio', engine_no: 'JF-K1' }, service_kind: 'WARRANTY', odometer: 5000 });
   assert.equal(noEngine.status, 400);
 
   // free service 1 with the kit on a new Dio: lines + stock
@@ -324,4 +324,31 @@ test('visit types and kits: oil chart picks the right oil per model, rules per v
   ok(await call('admin', 'PUT', `/kits/models/${model.id}`, { name: 'Test Model X', group_id: groups[0].id }));
   const fixed = ok(await call('advisor', 'GET', `/kits?tiles=1&model=${encodeURIComponent('Test Model X')}&visit_type=PAID`)).kits.find((k) => k.name === 'Periodic service');
   assert.equal(fixed.problems.length, 0);
+});
+
+test('new bikes need engine + chassis; cash change is rounded down to LKR 50', async () => {
+  const noIds = await call('advisor', 'POST', '/jobs', { customer: { name: 'R1', mobile: '077 444 5555' }, bike: { reg_no: 'NP RND-0001', model: 'Dio' }, service_kind: 'PAID' });
+  assert.equal(noIds.status, 400);
+  assert.match(noIds.data.error, /engine number and chassis number/);
+  const job = ok(await call('advisor', 'POST', '/jobs', {
+    customer: { name: 'R1', mobile: '077 444 5555' }, bike: { reg_no: 'NP RND-0001', model: 'Dio', engine_no: 'E-R1', chassis_no: 'C-R1' },
+    service_kind: 'PAID', pay_upfront: true, items: [{ item_type: 'custom_service', description: 'Service', unit_price: 2590 }],
+  }));
+  assert.equal(job.customer.mobile, '94774445555');
+  // 2,590 paid with 5,000: change 2,400 (not 2,410), 10 kept as rounding
+  const p = ok(await call('cashier', 'POST', `/cashier/jobs/${job.id}/payments`, { amount: 2590, method: 'Cash', cash_given: 5000 }));
+  assert.equal(Number(p.payment.change_given), 2400);
+  assert.equal(Number(p.payment.cash_over), 10);
+  const today = ok(await call('cashier', 'GET', '/cashier/today'));
+  assert.ok(today.cash_over >= 10);
+  assert.equal(today.cash_in_drawer, today.by_method.Cash + today.cash_over);
+  // cashier can give a different change, but not more than the exact change
+  const job2 = ok(await call('advisor', 'POST', '/jobs', {
+    customer: { name: 'R2', mobile: '0774445556' }, bike: { reg_no: 'NP RND-0002', model: 'Dio', engine_no: 'E-R2', chassis_no: 'C-R2' },
+    service_kind: 'PAID', pay_upfront: true, items: [{ item_type: 'custom_service', description: 'x', unit_price: 1230 }],
+  }));
+  const tooMuch = await call('cashier', 'POST', `/cashier/jobs/${job2.id}/payments`, { amount: 1230, method: 'Cash', cash_given: 2000, change_given: 800 });
+  assert.equal(tooMuch.status, 400);
+  const exact = ok(await call('cashier', 'POST', `/cashier/jobs/${job2.id}/payments`, { amount: 1230, method: 'Cash', cash_given: 2000, change_given: 770 }));
+  assert.equal(Number(exact.payment.cash_over), 0);
 });

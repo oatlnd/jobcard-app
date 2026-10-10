@@ -6,6 +6,7 @@ import { ErrorBox, Field, Loading, useAction, useLoad } from '../components/ui.j
 import PartSearch from '../components/PartSearch.jsx';
 import { SupplierForm } from './Suppliers.jsx';
 import { money, todayIso } from '../lib.js';
+import { ask } from '../components/confirm.jsx';
 
 const emptyLine = () => ({ key: Math.random(), part_id: null, part_no: '', description: '', qty_ordered: 1, unit_cost: 0 });
 
@@ -114,7 +115,7 @@ export default function PurchaseOrderForm() {
                     <td className="num"><input type="number" min="0.01" step="any" className="cell-input" style={{ width: 80 }} value={l.qty_ordered} onChange={(e) => setLine(l.key, 'qty_ordered', e.target.value)} /></td>
                     <td className="num"><input type="number" min="0" step="any" className="cell-input" style={{ width: 110 }} value={l.unit_cost} onChange={(e) => setLine(l.key, 'unit_cost', e.target.value)} /></td>
                     <td className="num">{money(Number(l.qty_ordered) * Number(l.unit_cost))}</td>
-                    <td className="num"><button type="button" className="icon-btn" onClick={() => setLines(lines.filter((x2) => x2.key !== l.key))}>×</button></td>
+                    <td className="num"><button type="button" className="icon-btn" onClick={async () => (await ask({ title: `Remove “${l.description || 'this line'}”?` })) && setLines(lines.filter((x2) => x2.key !== l.key))}>×</button></td>
                   </tr>
                 ))}
                 {lines.length === 0 && <tr><td colSpan="5" className="muted center">Search above to add parts.</td></tr>}

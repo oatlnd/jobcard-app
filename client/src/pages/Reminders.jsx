@@ -3,12 +3,18 @@ import { Link } from 'react-router-dom';
 import { get, post } from '../api.js';
 import { ErrorBox, Loading, Empty, useAction, useLoad } from '../components/ui.jsx';
 import { fmtReg, fmtMobile, fmtDate, fmtDateTime } from '../lib.js';
+import { useSort } from '../components/sort.jsx';
+
+const MSG_SORT = { when: (r) => r.sent_at || r.created_at, to: 'customer_name', channel: 'channel', msg: 'body', status: 'status' };
+const DUE_SORT = { due: 'next_service_due_date', bike: 'reg_no', customer: 'customer_name', mobile: 'mobile', sent: (r) => (r.reminder_sent_for === r.next_service_due_date ? 1 : 0) };
 
 export default function Reminders() {
   const [days, setDays] = useState(14);
   const due = useLoad(() => get('/bikes/due', { days }), [days]);
   const [status, setStatus] = useState('');
   const msgs = useLoad(() => get('/notifications', { status }), [status]);
+  const { sorted: dueRows, Th } = useSort(due.data, 'due', DUE_SORT);
+  const { sorted: msgRows, Th: Th2 } = useSort(msgs.data, 'msgs', MSG_SORT);
   const act = useAction();
 
   return (
@@ -29,9 +35,9 @@ export default function Reminders() {
         {due.loading && !due.data ? <Loading /> : due.data?.length === 0 ? <Empty>No bikes due.</Empty> : (
           <div className="table-wrap">
             <table className="table compact">
-              <thead><tr><th>Due</th><th>Bike</th><th>Customer</th><th>Mobile</th><th>Reminder</th></tr></thead>
+              <thead><tr><Th k="due">Due</Th><Th k="bike">Bike</Th><Th k="customer">Customer</Th><Th k="mobile">Mobile</Th><Th k="sent">Reminder</Th></tr></thead>
               <tbody>
-                {due.data?.map((b) => (
+                {dueRows.map((b) => (
                   <tr key={b.id}>
                     <td className={new Date(b.next_service_due_date) < new Date() ? 'late-text' : ''}>{fmtDate(b.next_service_due_date)}</td>
                     <td><strong>{fmtReg(b.reg_no)}</strong> <span className="muted small">{b.model}</span></td>
@@ -57,9 +63,9 @@ export default function Reminders() {
         {msgs.loading && !msgs.data ? <Loading /> : msgs.data?.length === 0 ? <Empty>No messages.</Empty> : (
           <div className="table-wrap">
             <table className="table compact">
-              <thead><tr><th>When</th><th>To</th><th>Channel</th><th>Message</th><th>Status</th><th /></tr></thead>
+              <thead><tr><Th2 k="when">When</Th2><Th2 k="to">To</Th2><Th2 k="channel">Channel</Th2><Th2 k="msg">Message</Th2><Th2 k="status">Status</Th2><th /></tr></thead>
               <tbody>
-                {msgs.data?.map((n) => (
+                {msgRows.map((n) => (
                   <tr key={n.id}>
                     <td className="small nowrap">{fmtDateTime(n.sent_at || n.created_at)}</td>
                     <td>{n.customer_name}<div className="small muted">{fmtMobile(n.to_number)}{n.job_no ? ` · ${n.job_no}` : ''}</div></td>

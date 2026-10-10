@@ -165,3 +165,51 @@ export async function compressImage(file, maxSide = 1600, quality = 0.82) {
     return file;
   }
 }
+
+/** Format a mobile number while typing: 0771234567 / +94771234567 → 077 123 4567 */
+export function formatMobileInput(v) {
+  let d = String(v || '').replace(/\D/g, '');
+  if (d.startsWith('94')) d = '0' + d.slice(2);
+  if (d && !d.startsWith('0')) d = '0' + d;
+  d = d.slice(0, 10);
+  return [d.slice(0, 3), d.slice(3, 6), d.slice(6, 10)].filter(Boolean).join(' ');
+}
+export const isValidMobileInput = (v) => /^07\d{8}$/.test(String(v || '').replace(/\D/g, ''));
+
+// ---- Estimated delivery: quick choices, counted in workshop opening hours ----
+export const ESTIMATE_OPTIONS = [
+  ...[30, 60, 90, 120, 150, 180, 210, 240].map((m) => ({ key: `m${m}`, label: m < 60 ? '30 minutes' : `${m / 60} hour${m === 60 ? '' : 's'}`.replace('.5', '½'), minutes: m })),
+  { key: 'm720', label: '12 hours', minutes: 720 },
+  { key: 'd1', label: '1 day', days: 1 },
+  { key: 'd3', label: '3 days', days: 3 },
+  { key: 'd7', label: '1 week', days: 7 },
+  { key: 'd30', label: '1 month', days: 30 },
+];
+const atTime = (d, hhmm) => { const [h, m] = String(hhmm).split(':').map(Number); const x = new Date(d); x.setHours(h, m || 0, 0, 0); return x; };
+/** Move a time into opening hours: before opening → opening time; after closing → next day's opening. */
+function intoHours(t, open, close) {
+  const o = atTime(t, open); const c = atTime(t, close);
+  if (t < o) return o;
+  if (t >= c) { const n = new Date(o); n.setDate(n.getDate() + 1); return n; }
+  return t;
+}
+/** When will it be ready? Hours are counted only while the workshop is open (e.g. 8:00–17:00). */
+export function readyBy(optionKey, hours = {}, from = new Date()) {
+  const open = hours.open || '08:00'; const close = hours.close || '17:00';
+  const opt = ESTIMATE_OPTIONS.find((o) => o.key === optionKey);
+  if (!opt) return null;
+  if (opt.days) {
+    const t = new Date(from); t.setDate(t.getDate() + opt.days);
+    return intoHours(t, open, close);
+  }
+  let t = intoHours(new Date(from), open, close);
+  let left = opt.minutes;
+  for (let guard = 0; guard < 60; guard++) {
+    const avail = (atTime(t, close) - t) / 60000;
+    if (left <= avail) return new Date(t.getTime() + left * 60000);
+    left -= avail;
+    const n = atTime(t, open); n.setDate(n.getDate() + 1); t = n;
+  }
+  return t;
+}
+export const fmtReady = (d) => (d ? new Date(d).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }) : '');

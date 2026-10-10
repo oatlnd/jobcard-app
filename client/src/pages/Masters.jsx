@@ -3,6 +3,8 @@ import { useState } from 'react';
 import { get, post, put, del } from '../api.js';
 import { ErrorBox, Field, Loading, Modal, Tabs, useAction, useLoad } from '../components/ui.jsx';
 import { money } from '../lib.js';
+import { ask } from '../components/confirm.jsx';
+import { useSort } from '../components/sort.jsx';
 
 const LIST_TABS = [
   ['service_types', 'Service types'],
@@ -11,6 +13,8 @@ const LIST_TABS = [
   ['designation', 'Designations'],
   ['unit', 'Units'],
 ];
+
+const ST_SORT = { order: (r) => Number(r.sort_order), name: 'name', price: (r) => Number(r.default_price), used: (r) => Number(r.used), status: (r) => (r.active ? 0 : 1) };
 
 export default function Masters() {
   const [tab, setTab] = useState('service_types');
@@ -27,6 +31,7 @@ export default function Masters() {
 
 function ServiceTypes() {
   const list = useLoad(() => get('/masters/service-types', { all: '1' }), []);
+  const { sorted: stRows, Th } = useSort(list.data, 'servicetypes', ST_SORT);
   const [edit, setEdit] = useState(null);
   const act = useAction();
   return (
@@ -40,9 +45,9 @@ function ServiceTypes() {
       {list.loading && !list.data ? <Loading /> : (
         <div className="table-wrap flat">
           <table className="table compact">
-            <thead><tr><th>#</th><th>Service</th><th className="num">Default amount</th><th className="num">Used</th><th>Status</th><th /></tr></thead>
+            <thead><tr><Th k="order">#</Th><Th k="name">Service</Th><Th k="price" className="num">Default amount</Th><Th k="used" className="num">Used</Th><Th k="status">Status</Th><th /></tr></thead>
             <tbody>
-              {list.data?.map((s) => (
+              {stRows.map((s) => (
                 <tr key={s.id} className={s.active ? '' : 'dim'}>
                   <td className="muted small">{s.sort_order}</td>
                   <td><strong>{s.name}</strong>{s.description && <div className="small muted">{s.description}</div>}</td>
@@ -51,7 +56,7 @@ function ServiceTypes() {
                   <td>{s.active ? 'Active' : 'Hidden'}</td>
                   <td className="num nowrap">
                     <button className="btn small ghost" onClick={() => setEdit(s)}>Edit</button>
-                    {s.active && <button className="btn small ghost danger" disabled={act.busy} onClick={() => confirm(`Remove "${s.name}"? It will be hidden if it was used before.`) && act.run(async () => { await del(`/masters/service-types/${s.id}`); list.reload({ quiet: true }); })}>Remove</button>}
+                    {s.active && <button className="btn small ghost danger" disabled={act.busy} onClick={async () => (await ask({ title: `Remove “${s.name}”?`, message: 'It is hidden if it was used before.' })) && act.run(async () => { await del(`/masters/service-types/${s.id}`); list.reload({ quiet: true }); })}>Remove</button>}
                   </td>
                 </tr>
               ))}

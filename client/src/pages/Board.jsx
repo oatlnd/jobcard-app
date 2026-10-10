@@ -94,7 +94,7 @@ function JobTile({ job, showMoney }) {
       {job.status === 'COMPLETED' && <div style={{ marginTop: 6 }}><DeliveryBadge status={job.delivery_status} /></div>}
       <div className="tile-foot small">
         <span>{job.mechanic_name ? `🔧 ${job.mechanic_name}` : <em className="muted">Unassigned</em>}</span>
-        <span className={late ? 'late-text' : 'muted'} title={job.promised_at ? `Promised ${fmtDateTime(job.promised_at)}` : ''}>
+        <span className={late ? 'late-text' : 'muted'} title={job.promised_at ? `Estimated delivery ${fmtDateTime(job.promised_at)}` : ''}>
           {late ? 'Overdue' : timeAgo(job.created_at)}
         </span>
       </div>

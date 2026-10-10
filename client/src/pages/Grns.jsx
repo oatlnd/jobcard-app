@@ -4,12 +4,16 @@ import { get } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { ErrorBox, Loading, Empty, useLoad } from '../components/ui.jsx';
 import { fmtDate, money } from '../lib.js';
+import { useSort } from '../components/sort.jsx';
+
+const GRN_SORT = { grn: 'grn_no', date: 'received_date', supplier: 'supplier_name', po: 'po_no', inv: 'supplier_invoice_no', by: 'received_by_name', value: (r) => Number(r.total) };
 
 export default function Grns() {
   const { can } = useAuth();
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const list = useLoad(() => get('/purchasing/grns', { from, to }), [from, to]);
+  const { sorted: grnRows, Th } = useSort(list.data, 'grns', GRN_SORT);
   return (
     <div className="page">
       <div className="page-head">
@@ -24,9 +28,9 @@ export default function Grns() {
       {list.loading && !list.data ? <Loading /> : list.data?.length === 0 ? <Empty>No goods received yet.</Empty> : (
         <div className="table-wrap">
           <table className="table">
-            <thead><tr><th>GRN</th><th>Received</th><th>Supplier</th><th>PO</th><th>Supplier invoice</th><th>Received by</th><th className="num">Value</th></tr></thead>
+            <thead><tr><Th k="grn">GRN</Th><Th k="date">Received</Th><Th k="supplier">Supplier</Th><Th k="po">PO</Th><Th k="inv">Supplier invoice</Th><Th k="by">Received by</Th><Th k="value" className="num">Value</Th></tr></thead>
             <tbody>
-              {list.data?.map((g) => (
+              {grnRows.map((g) => (
                 <tr key={g.id}>
                   <td><Link to={`/grns/${g.id}`}><strong>{g.grn_no}</strong></Link></td>
                   <td className="small">{fmtDate(g.received_date)}</td>

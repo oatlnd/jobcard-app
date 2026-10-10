@@ -6,9 +6,13 @@ import { useAuth } from '../auth.jsx';
 import { ErrorBox, Field, Loading, Empty, Modal, useAction, useLoad, useDebounced } from '../components/ui.jsx';
 import Attachments from '../components/Attachments.jsx';
 import { fmtDate, money, todayIso, compressImage, PAYMENT_METHODS } from '../lib.js';
+import { ask } from '../components/confirm.jsx';
+import { useSort } from '../components/sort.jsx';
 
 const monthStart = () => todayIso().slice(0, 8) + '01';
 const TYPE_LABEL = { INTERNAL: 'Internal', EXTERNAL: 'External' };
+
+const EXP_SORT = { date: 'expense_date', type: 'expense_type', cat: 'category', desc: 'description', paid: (e) => e.paid_to || e.supplier_name, method: 'payment_method', amount: (e) => Number(e.amount) };
 
 export default function Expenses() {
   const { can } = useAuth();
@@ -20,6 +24,7 @@ export default function Expenses() {
   const dq = useDebounced(q);
   const list = useLoad(() => get('/expenses', { from, to, type, category, q: dq }), [from, to, type, category, dq]);
   const cats = useLoad(() => get('/masters/lookups', { type: 'expense_category' }), []);
+  const { sorted: expRows, Th } = useSort(list.data?.expenses, 'expenses', EXP_SORT);
   const [edit, setEdit] = useState(null);
   const d = list.data;
 
@@ -60,9 +65,9 @@ export default function Expenses() {
       {list.loading && !d ? <Loading /> : d?.expenses.length === 0 ? <Empty>No expenses in this period.</Empty> : (
         <div className="table-wrap">
           <table className="table">
-            <thead><tr><th>Date</th><th>Type</th><th>Category</th><th>Description</th><th>Paid to</th><th>Method</th><th className="num">Amount</th><th /></tr></thead>
+            <thead><tr><Th k="date">Date</Th><Th k="type">Type</Th><Th k="cat">Category</Th><Th k="desc">Description</Th><Th k="paid">Paid to</Th><Th k="method">Method</Th><Th k="amount" className="num">Amount</Th><th /></tr></thead>
             <tbody>
-              {d?.expenses.map((e) => (
+              {expRows.map((e) => (
                 <tr key={e.id}>
                   <td className="small nowrap">{fmtDate(e.expense_date)}<div className="muted">{e.expense_no}</div></td>
                   <td><span className={`badge x-${e.expense_type}`}>{TYPE_LABEL[e.expense_type]}</span></td>
@@ -111,7 +116,7 @@ function ExpenseForm({ e, cats, canEdit, onClose, onSaved }) {
   return (
     <Modal title={isNew ? 'Add expense' : `Expense ${e.expense_no}`} onClose={onClose}
       footer={<>
-        {!isNew && canEdit && <button className="btn ghost danger" style={{ marginRight: 'auto' }} disabled={busy} onClick={() => confirm('Delete this expense?') && run(async () => { await del(`/expenses/${e.id}`); onSaved(); })}>Delete</button>}
+        {!isNew && canEdit && <button className="btn ghost danger" style={{ marginRight: 'auto' }} disabled={busy} onClick={async () => (await ask({ title: 'Delete this expense?', message: `${e.expense_no || ''} ${e.description || ''}`, yes: 'Yes, delete' })) && run(async () => { await del(`/expenses/${e.id}`); onSaved(); })}>Delete</button>}
         <button className="btn ghost" onClick={onClose}>{canEdit ? 'Cancel' : 'Close'}</button>
         {canEdit && <button className="btn primary" disabled={busy || !f.description.trim() || !(Number(f.amount) > 0)} onClick={save}>{busy ? 'Saving…' : 'Save'}</button>}
       </>}>
@@ -143,7 +148,7 @@ function ExpenseForm({ e, cats, canEdit, onClose, onSaved }) {
             {pending.map((p, i) => (
               <div key={i} className="thumb">
                 {p.type.startsWith('image/') ? <img src={URL.createObjectURL(p)} alt={p.name} /> : <span className="thumb-file">PDF</span>}
-                <button className="thumb-del" onClick={() => setPending(pending.filter((_, j) => j !== i))}>×</button>
+                <button className="thumb-del" onClick={async () => (await ask('Remove this photo?')) && setPending(pending.filter((_, j) => j !== i))}>×</button>
               </div>
             ))}
           </div>

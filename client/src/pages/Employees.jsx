@@ -4,11 +4,15 @@ import { get, post, put } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { ErrorBox, Field, Loading, Empty, Modal, useAction, useLoad } from '../components/ui.jsx';
 import { fmtDate, fmtMobile, fmtPeriod, money } from '../lib.js';
+import { useSort } from '../components/sort.jsx';
+
+const EMP_SORT = { no: 'emp_no', name: 'name', des: 'designation', mobile: 'mobile', basic: (r) => Number(r.basic_salary), allow: (r) => Number(r.epf_allowance) + Number(r.other_allowance), epf: 'epf_no', adv: (r) => Number(r.advance_outstanding || 0) };
 
 export default function Employees() {
   const { can } = useAuth();
   const [all, setAll] = useState(false);
   const list = useLoad(() => get('/hr/employees', { all: all ? '1' : undefined }), [all]);
+  const { sorted: empRows, Th } = useSort(list.data, 'employees', EMP_SORT);
   const [edit, setEdit] = useState(null);
   const total = (list.data || []).filter((e) => e.active).reduce((s, e) => s + Number(e.basic_salary) + Number(e.epf_allowance) + Number(e.other_allowance), 0);
   return (
@@ -25,9 +29,9 @@ export default function Employees() {
       {list.loading && !list.data ? <Loading /> : list.data?.length === 0 ? <Empty>No employees yet.</Empty> : (
         <div className="table-wrap">
           <table className="table">
-            <thead><tr><th>No.</th><th>Name</th><th>Designation</th><th>Mobile</th><th className="num">Basic</th><th className="num">Allowances</th><th>EPF no.</th><th className="num">Advance due</th><th /></tr></thead>
+            <thead><tr><Th k="no">No.</Th><Th k="name">Name</Th><Th k="des">Designation</Th><Th k="mobile">Mobile</Th><Th k="basic" className="num">Basic</Th><Th k="allow" className="num">Allowances</Th><Th k="epf">EPF no.</Th><Th k="adv" className="num">Advance due</Th><th /></tr></thead>
             <tbody>
-              {list.data?.map((e) => (
+              {empRows.map((e) => (
                 <tr key={e.id} className={e.active ? '' : 'dim'}>
                   <td className="mono">{e.emp_no}</td>
                   <td><Link to={`/employees/${e.id}`}><strong>{e.name}</strong></Link>{e.username && <div className="small muted">login: {e.username}</div>}</td>

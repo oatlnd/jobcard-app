@@ -4,8 +4,11 @@ import { get } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { ErrorBox, Loading, Empty, useLoad, useDebounced } from '../components/ui.jsx';
 import { fmtDate, money } from '../lib.js';
+import { useSort } from '../components/sort.jsx';
 
 export const PO_STATUS = { DRAFT: 'Draft', ORDERED: 'Ordered', PARTIAL: 'Partly received', RECEIVED: 'Received', CLOSED: 'Closed', CANCELLED: 'Cancelled' };
+
+const PO_SORT = { po: 'po_no', date: 'order_date', supplier: 'supplier_name', expected: 'expected_date', lines: (r) => Number(r.line_count), total: (r) => Number(r.total), status: 'status' };
 
 export default function PurchaseOrders() {
   const { can } = useAuth();
@@ -15,6 +18,7 @@ export default function PurchaseOrders() {
   const dq = useDebounced(q);
   const supplierId = sp.get('supplier_id') || '';
   const list = useLoad(() => get('/purchasing/purchase-orders', { q: dq, status, supplier_id: supplierId }), [dq, status, supplierId]);
+  const { sorted: poRows, Th } = useSort(list.data, 'pos', PO_SORT);
   return (
     <div className="page">
       <div className="page-head">
@@ -32,9 +36,9 @@ export default function PurchaseOrders() {
       {list.loading && !list.data ? <Loading /> : list.data?.length === 0 ? <Empty>No purchase orders.</Empty> : (
         <div className="table-wrap">
           <table className="table">
-            <thead><tr><th>PO</th><th>Date</th><th>Supplier</th><th>Expected</th><th className="num">Lines</th><th className="num">Total</th><th>Status</th></tr></thead>
+            <thead><tr><Th k="po">PO</Th><Th k="date">Date</Th><Th k="supplier">Supplier</Th><Th k="expected">Expected</Th><Th k="lines" className="num">Lines</Th><Th k="total" className="num">Total</Th><Th k="status">Status</Th></tr></thead>
             <tbody>
-              {list.data?.map((p) => (
+              {poRows.map((p) => (
                 <tr key={p.id}>
                   <td><Link to={`/purchase-orders/${p.id}`}><strong>{p.po_no}</strong></Link></td>
                   <td className="small">{fmtDate(p.order_date)}</td>

@@ -5,6 +5,10 @@ import { useAuth } from '../auth.jsx';
 import { useLive } from '../socket.js';
 import { ErrorBox, Field, Loading, Empty, Modal, useAction, useLoad, useDebounced } from '../components/ui.jsx';
 import { money } from '../lib.js';
+import { ask } from '../components/confirm.jsx';
+import { useSort } from '../components/sort.jsx';
+
+const PART_SORT = { no: 'part_no', name: 'name', cat: 'category', cost: (p) => Number(p.cost_price), price: (p) => Number(p.unit_price), stock: (p) => Number(p.stock_qty) };
 
 export default function Parts() {
   const { can } = useAuth();
@@ -16,6 +20,7 @@ export default function Parts() {
   const parts = useLoad(() => get('/parts', { q: dq, category, low: low ? '1' : undefined }), [dq, category, low]);
   const cats = useLoad(() => get('/parts/categories'), []);
   const units = useLoad(() => get('/masters/lookups', { type: 'unit' }), []);
+  const { sorted: partRows, Th } = useSort(parts.data, 'parts', PART_SORT);
   const [editing, setEditing] = useState(null);
   const [stock, setStock] = useState(null);
   const canEdit = can('parts.manage');
@@ -50,13 +55,13 @@ export default function Parts() {
           <table className="table">
             <thead>
               <tr>
-                <th>Part no.</th><th>Name</th><th>Category</th>
-                {showCost && <th className="num">Cost</th>}{showPrice && <th className="num">Selling price</th>}
-                <th className="num">In stock</th>{(canEdit || can('stock.adjust')) && <th />}
+                <Th k="no">Part no.</Th><Th k="name">Name</Th><Th k="cat">Category</Th>
+                {showCost && <Th k="cost" className="num">Cost</Th>}{showPrice && <Th k="price" className="num">Selling price</Th>}
+                <Th k="stock" className="num">In stock</Th>{(canEdit || can('stock.adjust')) && <th />}
               </tr>
             </thead>
             <tbody>
-              {parts.data?.map((p) => (
+              {partRows.map((p) => (
                 <tr key={p.id}>
                   <td className="mono">{p.part_no}</td>
                   <td>{p.name}{(p.brand || p.location) && <div className="small muted">{[p.brand, p.location && `Rack ${p.location}`].filter(Boolean).join(' · ')}</div>}</td>
@@ -98,7 +103,7 @@ function PartForm({ part, cats, units, onClose, onSaved }) {
   return (
     <Modal title={isNew ? 'New part' : `Edit ${part.part_no}`} onClose={onClose}
       footer={<>
-        {!isNew && <button className="btn ghost danger" style={{ marginRight: 'auto' }} onClick={() => confirm('Hide this part from the catalogue?') && run(async () => { await patch(`/parts/${part.id}`, { active: false }); onSaved(); })}>Remove</button>}
+        {!isNew && <button className="btn ghost danger" style={{ marginRight: 'auto' }} onClick={async () => (await ask({ title: `Remove “${part.name}” from the parts list?`, message: 'It is hidden, not deleted – old job cards keep it.' })) && run(async () => { await patch(`/parts/${part.id}`, { active: false }); onSaved(); })}>Remove</button>}
         <button className="btn ghost" onClick={onClose}>Cancel</button><button className="btn primary" disabled={busy} onClick={save}>Save</button></>}>
       <ErrorBox error={error} />
       <div className="grid2">

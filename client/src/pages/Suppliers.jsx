@@ -3,11 +3,15 @@ import { Link } from 'react-router-dom';
 import { get, post, put } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import { ErrorBox, Field, Loading, Empty, Modal, useAction, useLoad } from '../components/ui.jsx';
+import { useSort } from '../components/sort.jsx';
+
+const SUP_SORT = { name: 'name', contact: 'contact_person', phone: 'phone', terms: 'payment_terms', open: (r) => Number(r.open_pos || 0) };
 
 export default function Suppliers() {
   const { can } = useAuth();
   const [all, setAll] = useState(false);
   const list = useLoad(() => get('/purchasing/suppliers', { all: all ? '1' : undefined }), [all]);
+  const { sorted: supRows, Th } = useSort(list.data, 'suppliers', SUP_SORT);
   const [edit, setEdit] = useState(null);
   return (
     <div className="page">
@@ -20,9 +24,9 @@ export default function Suppliers() {
       {list.loading && !list.data ? <Loading /> : list.data?.length === 0 ? <Empty>No suppliers yet.</Empty> : (
         <div className="table-wrap">
           <table className="table">
-            <thead><tr><th>Supplier</th><th>Contact</th><th>Phone</th><th>Terms</th><th className="num">Open POs</th><th /></tr></thead>
+            <thead><tr><Th k="name">Supplier</Th><Th k="contact">Contact</Th><Th k="phone">Phone</Th><Th k="terms">Terms</Th><Th k="open" className="num">Open POs</Th><th /></tr></thead>
             <tbody>
-              {list.data?.map((s) => (
+              {supRows.map((s) => (
                 <tr key={s.id} className={s.active ? '' : 'dim'}>
                   <td><strong>{s.name}</strong>{s.address && <div className="small muted">{s.address}</div>}</td>
                   <td>{s.contact_person || '—'}{s.email && <div className="small muted">{s.email}</div>}</td>

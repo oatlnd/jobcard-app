@@ -3,6 +3,7 @@ import { useRef, useState } from 'react';
 import { get, upload, del } from '../api.js';
 import { compressImage } from '../lib.js';
 import { ErrorBox, useAction, useLoad } from './ui.jsx';
+import { ask } from './confirm.jsx';
 
 export default function Attachments({ entityType, entityId, canEdit, initial }) {
   const list = useLoad(() => (initial && !entityId ? Promise.resolve([]) : get(`/attachments/${entityType}/${entityId}`)), [entityType, entityId]);
@@ -32,7 +33,7 @@ export default function Attachments({ entityType, entityId, canEdit, initial }) 
               : <a className="thumb-file" href={a.url} target="_blank" rel="noreferrer">PDF<br /><small>{a.original_name}</small></a>}
             {canEdit && (
               <button className="thumb-del" title="Remove" disabled={busy}
-                onClick={() => confirm('Remove this file?') && run(async () => {
+                onClick={async () => (await ask({ title: 'Remove this file?', message: a.original_name || '' })) && run(async () => {
                   await del(`/attachments/${entityType}/${entityId}/${a.id}`);
                   list.setData((d) => d.filter((x) => x.id !== a.id));
                 })}>×</button>

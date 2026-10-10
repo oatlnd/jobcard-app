@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { get, post, put, del } from '../api.js';
 import { ErrorBox, Field, Loading, Tabs, useAction, useLoad } from '../components/ui.jsx';
 import { SERVICE_KINDS, VISIT, isFreeService, money } from '../lib.js';
+import { ask } from '../components/confirm.jsx';
 
 export default function Kits() {
   const [tab, setTab] = useState('kits');
@@ -75,7 +76,7 @@ function KitsTab({ parts }) {
     setSelId(saved.id);
     await kits.reload({ quiet: true });
   });
-  const remove = () => confirm(`Remove "${draft.name}"? If it was used on job cards it is switched off instead.`) && act.run(async () => {
+  const remove = async () => (await ask({ title: `Remove kit “${draft.name}”?`, message: 'If it was used on job cards it is switched off instead.' })) && act.run(async () => {
     await del(`/kits/${draft.id}`);
     setSelId(null);
     await kits.reload({ quiet: true });
@@ -138,7 +139,7 @@ function KitsTab({ parts }) {
                     <td className="nowrap">
                       <button className="icon-btn" disabled={i === 0} onClick={() => move(i, -1)} title="Move up">↑</button>
                       <button className="icon-btn" disabled={i === draft.lines.length - 1} onClick={() => move(i, 1)} title="Move down">↓</button>
-                      <button className="icon-btn" onClick={() => setDraft({ ...draft, lines: draft.lines.filter((_, n) => n !== i) })} title="Remove">×</button>
+                      <button className="icon-btn" onClick={async () => (await ask({ title: 'Remove this line from the kit?', message: 'Not saved until you click Save kit.' })) && setDraft({ ...draft, lines: draft.lines.filter((_, n) => n !== i) })} title="Remove">×</button>
                     </td>
                   </tr>
                 ))}

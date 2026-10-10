@@ -4,14 +4,18 @@ import { Link } from 'react-router-dom';
 import { get, downloadCsv } from '../api.js';
 import { ErrorBox, Field, Loading, useLoad } from '../components/ui.jsx';
 import { SERVICE_KIND_LABEL, DELIVERY_LABEL, bikeLabel, fmtDate, todayIso } from '../lib.js';
+import { useSort } from '../components/sort.jsx';
 
 const firstOfMonth = () => `${todayIso().slice(0, 7)}-01`;
+
+const FS_SORT = { date: 'created_at', job: 'job_no', svc: 'service_kind', model: 'model', bike: 'reg_no', engine: 'engine_no', chassis: 'chassis_no', sold: 'sale_date', km: (r) => Number(r.odometer), customer: 'customer_name', status: 'delivery_status' };
 
 export default function FreeServiceReport() {
   const [from, setFrom] = useState(firstOfMonth());
   const [to, setTo] = useState(todayIso());
   const rep = useLoad(() => get('/reports/free-services', { from, to }), [from, to]);
   const rows = rep.data?.rows || [];
+  const { sorted: fsRows, Th } = useSort(rep.data?.rows, 'freeservices', FS_SORT);
 
   const csv = () => downloadCsv(`honda-free-services-${from}-to-${to}.csv`, rows, [
     ['Date', (r) => r.created_at.slice(0, 10)], ['Job no', 'job_no'], ['Free service', (r) => SERVICE_KIND_LABEL[r.service_kind]],
@@ -49,10 +53,10 @@ export default function FreeServiceReport() {
         <div className="table-wrap">
           <table className="table compact">
             <thead>
-              <tr><th>Date</th><th>Job</th><th>Service</th><th>Model</th><th>Bike</th><th>Engine no</th><th>Chassis no</th><th>Sold</th><th className="num">km</th><th>Customer</th><th>Status</th></tr>
+              <tr><Th k="date">Date</Th><Th k="job">Job</Th><Th k="svc">Service</Th><Th k="model">Model</Th><Th k="bike">Bike</Th><Th k="engine">Engine no</Th><Th k="chassis">Chassis no</Th><Th k="sold">Sold</Th><Th k="km" className="num">km</Th><Th k="customer">Customer</Th><Th k="status">Status</Th></tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {fsRows.map((r) => (
                 <tr key={r.id}>
                   <td>{fmtDate(r.created_at)}</td>
                   <td><Link to={`/jobs/${r.id}`}>{r.job_no}</Link></td>

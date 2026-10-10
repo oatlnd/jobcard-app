@@ -3,15 +3,19 @@ import { Link } from 'react-router-dom';
 import { get } from '../api.js';
 import { ErrorBox, Loading, Empty, useLoad } from '../components/ui.jsx';
 import { fmtReg, fmtDate, money } from '../lib.js';
+import { useSort } from '../components/sort.jsx';
 
 const today = new Date().toISOString().slice(0, 10);
 const monthStart = today.slice(0, 8) + '01';
+
+const INV_SORT = { no: 'invoice_no', date: 'issued_at', job: 'job_no', customer: 'customer_name', bike: 'reg_no', total: (i) => Number(i.total), balance: (i) => Number(i.total) - Number(i.paid_amount), status: 'status' };
 
 export default function Invoices() {
   const [from, setFrom] = useState(monthStart);
   const [to, setTo] = useState(today);
   const [status, setStatus] = useState('');
   const { data, error, loading } = useLoad(() => get('/invoices', { from, to, status }), [from, to, status]);
+  const { sorted: invRows, Th } = useSort(data, 'invoices', INV_SORT);
   const sum = (k) => (data || []).reduce((s, i) => s + Number(i[k]), 0);
 
   return (
@@ -36,9 +40,9 @@ export default function Invoices() {
       {loading && !data ? <Loading /> : data?.length === 0 ? <Empty>No invoices in this period.</Empty> : (
         <div className="table-wrap">
           <table className="table">
-            <thead><tr><th>Invoice</th><th>Date</th><th>Job</th><th>Customer</th><th>Bike</th><th className="num">Total</th><th className="num">Balance</th><th>Status</th></tr></thead>
+            <thead><tr><Th k="no">Invoice</Th><Th k="date">Date</Th><Th k="job">Job</Th><Th k="customer">Customer</Th><Th k="bike">Bike</Th><Th k="total" className="num">Total</Th><Th k="balance" className="num">Balance</Th><Th k="status">Status</Th></tr></thead>
             <tbody>
-              {data?.map((i) => (
+              {invRows.map((i) => (
                 <tr key={i.id}>
                   <td><a href={`/print/job/${i.job_card_id}?doc=invoice&format=a4`} target="_blank" rel="noreferrer">{i.invoice_no}</a></td>
                   <td className="small">{fmtDate(i.issued_at)}</td>
